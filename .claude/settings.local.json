@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(test:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(dir:*)",
+      "Bash(netstat:*)",
+      "Bash(curl:*)",
+      "Bash(node -e:*)",
+      "WebSearch",
+      "WebFetch(domain:towardsdatascience.com)",
+      "WebFetch(domain:www.jenova.ai)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:pasqualepillitteri.it)",
+      "WebFetch(domain:www.instructionalsolutions.com)",
+      "WebFetch(domain:redreamality.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh repo view:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
