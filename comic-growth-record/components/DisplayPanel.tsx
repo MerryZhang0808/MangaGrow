@@ -4,7 +4,8 @@ import { Button } from './Button';
 import { RefreshCw, Download, Edit2 } from 'lucide-react';
 import JSZip from 'jszip';
 import saveAs from 'file-saver';
-import { generateImage } from '../services/geminiService';
+import { generateSceneImage } from '../services/imageService';
+import { getCharacterReferences } from '../services/characterService';
 
 interface DisplayPanelProps {
   scenes: Scene[];
@@ -14,13 +15,14 @@ interface DisplayPanelProps {
   libraryCharacters?: Character[]; // Contains the actual IMAGES (AvatarUrl) of known characters
   inputImages?: string[]; // Original user uploaded scene photos
   isGenerating: boolean;
+  generationStage?: string;
   style: ComicStyle;
   ratio: AspectRatio;
   onReset: () => void;
 }
 
 export const DisplayPanel: React.FC<DisplayPanelProps> = ({
-  scenes, setScenes, keyObjects, storyCharacters, libraryCharacters = [], inputImages = [], isGenerating, style, ratio, onReset
+  scenes, setScenes, keyObjects, storyCharacters, libraryCharacters = [], inputImages = [], isGenerating, generationStage = "", style, ratio, onReset
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editScript, setEditScript] = useState("");
@@ -42,38 +44,19 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
     try {
       const sceneToUpdate = scenes.find(s => s.id === id);
       const scriptToUse = newScript || sceneToUpdate?.script || "";
-      
-      // 1. Text Definitions with CHINESE LABELS
-      const characterContext = storyCharacters.map(c => 
+
+      const characterContext = storyCharacters.map(c =>
         `[人物: ${c.name}]\n外貌特征: ${c.description}`
       ).join('\n\n');
 
-      // 2. Object Definitions with CHINESE LABELS
-      const objectContext = keyObjects.map(o => 
+      const objectContext = keyObjects.map(o =>
         `[物品: ${o.name}] ${o.description}`
       ).join('\n');
-      
-      // 3. Find relevant Library Characters (for Image References)
-      const allRefChars = libraryCharacters.filter(libChar => 
-        storyCharacters.some(storyChar => storyChar.name.toLowerCase() === libChar.name.toLowerCase())
-      );
 
-      // Sort characters: prioritize those explicitly named in the script
-      // This ensures that if the service limits refs (e.g. max 3), the most relevant ones are included.
-      const sortedRefChars = [...allRefChars].sort((a, b) => {
-        const aIn = scriptToUse.includes(a.name);
-        const bIn = scriptToUse.includes(b.name);
-        // If A is in and B is not, A comes first (-1)
-        if (aIn && !bIn) return -1;
-        // If B is in and A is not, B comes first (1)
-        if (!aIn && bIn) return 1;
-        // Otherwise keep original order
-        return 0;
-      });
+      // Get sorted character references via characterService
+      const sortedRefChars = getCharacterReferences(libraryCharacters, scriptToUse);
 
-      // 4. Select specific input image if available for this scene
-      // Scene Numbers are 1-based, array is 0-based.
-      // Scene 1 -> Index 0.
+      // Select specific input image if available for this scene (1:1 mapping)
       let specificRefImage: string[] = [];
       if (inputImages.length > 0 && sceneToUpdate) {
         const index = sceneToUpdate.sceneNumber - 1;
@@ -82,33 +65,32 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
         }
       }
 
-      // ⭐ Continuity Reference for Regeneration:
-      // If no user input image for this scene AND not the first scene,
-      // use the previous scene's generated image as reference
+      // Continuity: use previous scene's image if no user photo for this scene
       const continuityReference: string[] = [];
       if (specificRefImage.length === 0 && sceneToUpdate && sceneToUpdate.sceneNumber > 1) {
-        // Find the previous scene
         const prevScene = scenes.find(s => s.sceneNumber === sceneToUpdate.sceneNumber - 1);
         if (prevScene && prevScene.imageUrl) {
           continuityReference.push(prevScene.imageUrl);
-          console.log(`Regenerating scene ${sceneToUpdate.sceneNumber}: Using previous scene as continuity reference`);
         }
       }
 
-      // Choose reference: user photo takes priority, otherwise use continuity reference
-      const referenceImages = specificRefImage.length > 0 ? specificRefImage : continuityReference;
+      const sceneReferenceImages = specificRefImage.length > 0 ? specificRefImage : continuityReference;
 
-      const newImageUrl = await generateImage(
-        scriptToUse,
+      const newImageUrl = await generateSceneImage({
+        script: scriptToUse,
         style,
         ratio,
         characterContext,
         objectContext,
-        sortedRefChars, // Pass sorted images
-        referenceImages // Pass specific original scene image or continuity reference
-      );
-      
-      setScenes(prev => prev.map(s => 
+        referenceChars: sortedRefChars.map(r => {
+          const full = libraryCharacters.find(c => c.name === r.name);
+          return full || { id: '', name: r.name, avatarUrl: r.avatarUrl, description: r.description, originalPhotoUrls: [], createdAt: 0 };
+        }),
+        sceneReferenceImages,
+        isUserPhoto: specificRefImage.length > 0
+      });
+
+      setScenes(prev => prev.map(s =>
         s.id === id ? { ...s, isLoading: false, imageUrl: newImageUrl } : s
       ));
     } catch (e) {
@@ -140,6 +122,19 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
           <span className="text-6xl grayscale opacity-20">🖼️</span>
         </div>
         <p className="font-medium text-gray-400">Waiting for your story...</p>
+      </div>
+    );
+  }
+
+  // Pipeline progress view: show when generating but no scenes yet
+  if (scenes.length === 0 && isGenerating) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+          <p className="text-lg font-semibold text-gray-700">{generationStage || "准备中..."}</p>
+          <p className="text-sm text-gray-400">AI 正在创作你的故事，请稍候</p>
+        </div>
       </div>
     );
   }

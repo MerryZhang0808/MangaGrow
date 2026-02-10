@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MangaGrow Architecture Diagram</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f8f9fa; color: #1a1a2e; padding: 40px 20px;
+  }
+  h1 { text-align: center; font-size: 28px; margin-bottom: 8px; color: #1a1a2e; }
+  .subtitle { text-align: center; color: #666; font-size: 14px; margin-bottom: 40px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* Section */
+  .section { margin-bottom: 48px; }
+  .section-title {
+    font-size: 18px; font-weight: 700; color: #1a1a2e;
+    margin-bottom: 20px; padding-left: 12px;
+    border-left: 4px solid #6366f1;
+  }
+
+  /* ===== Module Overview ===== */
+  .overview-grid {
+    display: grid; grid-template-columns: 200px 1fr; gap: 24px;
+    align-items: start;
+  }
+  .ui-layer, .service-layer, .util-layer, .data-layer { border-radius: 12px; padding: 20px; }
+
+  .ui-layer {
+    background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+    border: 2px solid #a78bfa;
+    grid-column: 1 / -1;
+  }
+  .service-layer {
+    background: linear-gradient(135deg, #e0f2fe, #bae6fd);
+    border: 2px solid #38bdf8;
+    grid-column: 1 / -1;
+  }
+  .util-layer {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: 2px solid #fbbf24;
+  }
+  .data-layer {
+    background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+    border: 2px solid #34d399;
+  }
+
+  .layer-label {
+    font-size: 13px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 12px; opacity: 0.7;
+  }
+  .ui-layer .layer-label { color: #6d28d9; }
+  .service-layer .layer-label { color: #0369a1; }
+  .util-layer .layer-label { color: #92400e; }
+  .data-layer .layer-label { color: #065f46; }
+
+  .module-row {
+    display: flex; flex-wrap: wrap; gap: 10px;
+  }
+  .mod {
+    background: rgba(255,255,255,0.85); border-radius: 8px;
+    padding: 10px 16px; font-size: 13px; font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 140px;
+  }
+  .mod .file { font-size: 11px; font-weight: 400; color: #666; font-family: monospace; }
+  .mod.core { border-left: 3px solid #ef4444; }
+  .mod.new { position: relative; }
+  .mod.new::after {
+    content: 'NEW'; position: absolute; top: -6px; right: -6px;
+    background: #ef4444; color: white; font-size: 9px; font-weight: 700;
+    padding: 2px 6px; border-radius: 4px;
+  }
+  .mod.poc { position: relative; }
+  .mod.poc::after {
+    content: 'POC'; position: absolute; top: -6px; right: -6px;
+    background: #f59e0b; color: white; font-size: 9px; font-weight: 700;
+    padding: 2px 6px; border-radius: 4px;
+  }
+
+  /* ===== Story Pipeline ===== */
+  .pipeline {
+    display: flex; align-items: center; gap: 0;
+    overflow-x: auto; padding: 10px 0;
+  }
+  .step {
+    flex-shrink: 0; width: 160px; border-radius: 12px; padding: 16px;
+    text-align: center; position: relative;
+  }
+  .step-num {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 6px;
+  }
+  .step-name { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  .step-desc { font-size: 11px; color: #555; line-height: 1.4; }
+  .step.normal { background: #e0f2fe; border: 2px solid #38bdf8; }
+  .step.normal .step-num { color: #0369a1; }
+  .step.gate { background: #fef3c7; border: 2px solid #f59e0b; }
+  .step.gate .step-num { color: #92400e; }
+
+  .arrow {
+    flex-shrink: 0; width: 36px; display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: #94a3b8;
+  }
+  .arrow-retry {
+    position: absolute; top: -28px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; color: #dc2626; font-weight: 600;
+    background: #fee2e2; padding: 2px 8px; border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* ===== Image Gen Flow ===== */
+  .flow-box {
+    background: white; border-radius: 12px; padding: 24px;
+    border: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  }
+  .flow-row {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .flow-row:last-child { margin-bottom: 0; }
+  .flow-item {
+    background: #f1f5f9; border-radius: 8px; padding: 8px 14px;
+    font-size: 12px; font-weight: 600; color: #334155;
+  }
+  .flow-item.input { background: #ede9fe; color: #6d28d9; }
+  .flow-item.service { background: #e0f2fe; color: #0369a1; }
+  .flow-item.output { background: #d1fae5; color: #065f46; }
+  .flow-item.fallback { background: #fee2e2; color: #dc2626; border: 1px dashed #dc2626; }
+  .flow-arrow { color: #94a3b8; font-size: 16px; }
+
+  /* ===== Constraints ===== */
+  .constraint-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+  .constraint {
+    background: white; border-radius: 8px; padding: 12px 16px;
+    border: 1px solid #e5e7eb; font-size: 12px; line-height: 1.5;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .constraint-id {
+    flex-shrink: 0; background: #1a1a2e; color: white;
+    font-size: 10px; font-weight: 700; padding: 2px 8px;
+    border-radius: 4px; font-family: monospace;
+  }
+
+  /* ===== Resolution Strategy ===== */
+  .res-compare {
+    display: flex; gap: 24px; justify-content: center;
+    flex-wrap: wrap;
+  }
+  .res-card {
+    background: white; border-radius: 12px; padding: 24px 32px;
+    border: 1px solid #e5e7eb; text-align: center; min-width: 200px;
+  }
+  .res-card .label { font-size: 13px; color: #666; margin-bottom: 8px; }
+  .res-card .value { font-size: 36px; font-weight: 800; }
+  .res-card .detail { font-size: 11px; color: #999; margin-top: 4px; }
+  .res-card.panel .value { color: #3b82f6; }
+  .res-card.avatar .value { color: #8b5cf6; }
+
+  /* ===== Legend ===== */
+  .legend {
+    display: flex; gap: 20px; flex-wrap: wrap;
+    margin-bottom: 24px; font-size: 12px; color: #666;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 3px;
+  }
+  .legend-dot.ui { background: #a78bfa; }
+  .legend-dot.svc { background: #38bdf8; }
+  .legend-dot.util { background: #fbbf24; }
+  .legend-dot.data { background: #34d399; }
+  .legend-dot.new-tag { background: #ef4444; }
+  .legend-dot.poc-tag { background: #f59e0b; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>MangaGrow Architecture</h1>
+  <p class="subtitle">Architecture.md v1.0 | 2026-02-09 | React + Vite + TypeScript + Gemini API</p>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot ui"></div> UI Layer</div>
+    <div class="legend-item"><div class="legend-dot svc"></div> Service Layer</div>
+    <div class="legend-item"><div class="legend-dot util"></div> Utility Layer</div>
+    <div class="legend-item"><div class="legend-dot data"></div> Data Layer</div>
+    <div class="legend-item"><div class="legend-dot new-tag"></div> NEW = new module</div>
+    <div class="legend-item"><div class="legend-dot poc-tag"></div> POC = needs verification</div>
+  </div>
+
+  <!-- Section 1: Module Overview -->
+  <div class="section">
+    <div class="section-title">Module Overview</div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <!-- UI Layer -->
+      <div class="ui-layer">
+        <div class="layer-label">UI Layer (components/)</div>
+        <div class="module-row">
+          <div class="mod">
+            App.tsx
+            <span class="file">dispatch center</span>
+          </div>
+          <div class="mod">
+            InputPanel
+            <span class="file">text / voice / photo</span>
+          </div>
+          <div class="mod">
+            DisplayPanel
+            <span class="file">scene cards / edit / export</span>
+          </div>
+          <div class="mod">
+            CharacterLibrary
+            <span class="file">character CRUD</span>
+          </div>
+          <div class="mod">
+            OptionsPanel
+            <span class="file">style / ratio settings</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Service Layer -->
+      <div class="service-layer">
+        <div class="layer-label">Service Layer (services/)</div>
+        <div class="module-row">
+          <div class="mod new core">
+            storyService
+            <span class="file">5-step pipeline + quality gates</span>
+          </div>
+          <div class="mod new">
+            imageService
+            <span class="file">scene image generation</span>
+          </div>
+          <div class="mod new">
+            characterService
+            <span class="file">avatar + reference sheet</span>
+          </div>
+          <div class="mod new">
+            inputService
+            <span class="file">audio transcribe + image analyze</span>
+          </div>
+          <div class="mod new">
+            styleConfig
+            <span class="file">4 style parameter sets</span>
+          </div>
+          <div class="mod new">
+            aiClient
+            <span class="file">API client + retry + models</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom row -->
+      <div class="overview-grid">
+        <div class="util-layer">
+          <div class="layer-label">Utils</div>
+          <div class="module-row" style="flex-direction: column;">
+            <div class="mod new">
+              imageUtils
+              <span class="file">compress / parseDataUri</span>
+            </div>
+            <div class="mod new">
+              storageUtils
+              <span class="file">LocalStorage R/W</span>
+            </div>
+          </div>
+        </div>
+        <div class="data-layer">
+          <div class="layer-label">Data & Config</div>
+          <div class="module-row">
+            <div class="mod">
+              types.ts
+              <span class="file">Character, Scene, etc.</span>
+            </div>
+            <div class="mod">
+              constants.ts
+              <span class="file">SYSTEM_PROMPT</span>
+            </div>
+            <div class="mod">
+              .env.local
+              <span class="file">VITE_GEMINI_API_KEY</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 2: Story Pipeline -->
+  <div class="section">
+    <div class="section-title">Story Pipeline (storyService) - Core Upgrade</div>
+    <div style="overflow-x: auto;">
+      <div class="pipeline">
+        <div class="step normal">
+          <div class="step-num">Step 1</div>
+          <div class="step-name">Input Analysis</div>
+          <div class="step-desc">text + photos &rarr; structured events (who, what, emotion)</div>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div class="step normal" style="position: relative;">
+          <div class="step-num">Step 2</div>
+          <div class="step-name">Story Outline</div>
+          <div class="step-desc">events &rarr; story arc (setup, rising, climax, end)</div>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div class="step gate" style="position: relative;">
+          <div class="arrow-retry">&larr; retry max 2x</div>
+          <div class="step-num">Step 3 &middot; Gate 1</div>
+          <div class="step-name">Outline Review</div>
+          <div class="step-desc">check: narrative drive, causality, emotional arc</div>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div class="step normal">
+          <div class="step-num">Step 4</div>
+          <div class="step-name">Script Detail</div>
+          <div class="step-desc">outline &rarr; per-scene script with full character visuals</div>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div class="step gate">
+          <div class="step-num">Step 5 &middot; Gate 2</div>
+          <div class="step-name">Consistency Check</div>
+          <div class="step-desc">check: character, scene, timeline consistency</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 12px; font-size: 12px; color: #666; text-align: center;">
+      All steps use <strong>gemini-3-flash-preview</strong> (TEXT_MODEL) &middot;
+      Gate fail &rarr; retry with suggestions &middot; 2x fail &rarr; degrade &amp; continue
+    </div>
+  </div>
+
+  <!-- Section 3: Image Generation Flow -->
+  <div class="section">
+    <div class="section-title">Image Generation Flow (imageService)</div>
+    <div class="flow-box">
+      <div class="flow-row">
+        <div class="flow-item input">Scene Script</div>
+        <span class="flow-arrow">+</span>
+        <div class="flow-item input">Style Params</div>
+        <span class="flow-arrow">+</span>
+        <div class="flow-item input">Character Refs (avatar + sheet)</div>
+        <span class="flow-arrow">+</span>
+        <div class="flow-item input">Scene Ref (photo / prev scene)</div>
+      </div>
+      <div style="text-align: center; color: #94a3b8; font-size: 16px; margin: 4px 0;">&darr;</div>
+      <div class="flow-row" style="justify-content: center;">
+        <div class="flow-item service">Prompt Builder (6-layer priority)</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item service">gemini-3-pro-image-preview</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output">base64 image</div>
+      </div>
+      <div style="text-align: center; color: #94a3b8; font-size: 16px; margin: 4px 0;">&darr; fail?</div>
+      <div class="flow-row" style="justify-content: center;">
+        <div class="flow-item fallback">Fallback: text-only prompt (no refs)</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item service">gemini-3-pro-image-preview</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output">base64 image</div>
+      </div>
+    </div>
+    <div style="margin-top: 16px; font-size: 12px; color: #666;">
+      <strong>Prompt priority (high &rarr; low):</strong>
+      &nbsp; 1. Consistency rules &nbsp;&rarr;&nbsp; 2. Character visuals &nbsp;&rarr;&nbsp; 3. Scene description &nbsp;&rarr;&nbsp; 4. Style keywords &nbsp;&rarr;&nbsp; 5. Quality tags &nbsp;&rarr;&nbsp; 6. Negative constraints
+    </div>
+  </div>
+
+  <!-- Section 4: Resolution Strategy -->
+  <div class="section">
+    <div class="section-title">Resolution Strategy</div>
+    <div class="res-compare">
+      <div class="res-card panel">
+        <div class="label">Comic Panel</div>
+        <div class="value">1K</div>
+        <div class="detail">1024 &times; 1024 &middot; fast generation</div>
+      </div>
+      <div class="res-card avatar">
+        <div class="label">Character Avatar</div>
+        <div class="value">2K</div>
+        <div class="detail">2048 &times; 2048 &middot; high detail for reference</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 5: Character System -->
+  <div class="section">
+    <div class="section-title">Character System (characterService)</div>
+    <div class="flow-box">
+      <div class="flow-row">
+        <div class="flow-item input">User Photo + Name</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item service">analyzeCharacter()</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output">Visual Description (150-200 chars)</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-item input">Photo + Description</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item service">generateAvatar() [2K]</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output">Q-version Avatar</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-item input">Photo + Description</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item service" style="background: #fef3c7; color: #92400e; border: 1px dashed #f59e0b;">generateReferenceSheet() [POC-01]</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output" style="opacity: 0.6;">Reference Sheet (front + full body)</div>
+      </div>
+      <div style="margin-top: 8px; padding-top: 12px; border-top: 1px dashed #e5e7eb;">
+        <div style="font-size: 12px; color: #666;">
+          <strong>During scene generation:</strong> avatar (+ sheet if POC passes) injected as inlineData &middot; max 2 images per character &middot; max 14 total refs in Gemini API
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 6: Service Dependencies -->
+  <div class="section">
+    <div class="section-title">Service Dependency Graph</div>
+    <div class="flow-box" style="text-align: center; font-family: monospace; font-size: 13px; line-height: 2.2;">
+      <pre style="display: inline-block; text-align: left;">
+App.tsx (dispatch)
+  ├── inputService ────────── aiClient
+  │                            ▲
+  ├── storyService ────────────┤
+  │     └── characterService ──┤
+  │                            │
+  ├── imageService ────────────┤
+  │     ├── styleConfig        │
+  │     └── characterService ──┘
+  │
+  ├── imageUtils (shared)
+  └── storageUtils (shared)
+      </pre>
+    </div>
+  </div>
+
+  <!-- Section 7: Constraints -->
+  <div class="section">
+    <div class="section-title">Constraints (Red Lines) - C01 ~ C15</div>
+    <div class="constraint-grid">
+      <div class="constraint"><span class="constraint-id">C01</span> Env vars must use VITE_ prefix, read via import.meta.env</div>
+      <div class="constraint"><span class="constraint-id">C02</span> Components (.tsx) must NOT call Gemini API directly</div>
+      <div class="constraint"><span class="constraint-id">C03</span> All AI calls must use withRetry (min 3 retries)</div>
+      <div class="constraint"><span class="constraint-id">C04</span> Model names from aiClient constants only, no hardcoding</div>
+      <div class="constraint"><span class="constraint-id">C05</span> Panel = 1K, Avatar = 2K, no exceptions</div>
+      <div class="constraint"><span class="constraint-id">C06</span> Avatar gen must include both photo + text description</div>
+      <div class="constraint"><span class="constraint-id">C07</span> Style prompts from styleConfig.getStylePrompt() only</div>
+      <div class="constraint"><span class="constraint-id">C08</span> Same ComicStyle + AspectRatio across all scenes in a batch</div>
+      <div class="constraint"><span class="constraint-id">C09</span> 5-step pipeline must execute in order, no skipping</div>
+      <div class="constraint"><span class="constraint-id">C10</span> Quality gate max 2 retries, then degrade</div>
+      <div class="constraint"><span class="constraint-id">C11</span> All JSON responses must pass JSON.parse() validation</div>
+      <div class="constraint"><span class="constraint-id">C12</span> Photos must be compressed before API call (800px, 0.6)</div>
+      <div class="constraint"><span class="constraint-id">C13</span> constants.ts SYSTEM_PROMPT must match Product-Spec.md</div>
+      <div class="constraint"><span class="constraint-id">C14</span> Ref-image failure must fallback to text-only, no hard error</div>
+      <div class="constraint"><span class="constraint-id">C15</span> Architecture.md changes must sync architecture-diagram.html</div>
+    </div>
+  </div>
+
+  <!-- Section 8: Main Data Flow -->
+  <div class="section">
+    <div class="section-title">Main Data Flow (User clicks "Generate Comic")</div>
+    <div class="flow-box" style="font-family: monospace; font-size: 12px; line-height: 2;">
+      <pre style="display: inline-block; text-align: left; white-space: pre-wrap;">
+User Input (text / voice / photos)
+        │
+        ▼
+  inputService.transcribeAudio()  ─── voice ──▶ text
+  inputService.analyzeImages()    ─── photos ─▶ ImageAnalysis[]
+        │
+        ▼
+  storyService.generateStory()
+        │  Step 1: analyzeInput ─────▶ structured events
+        │  Step 2: generateOutline ──▶ story arc
+        │  Step 3: reviewOutline ────▶ pass / retry(2x) / degrade
+        │  Step 4: detailScripts ────▶ scene scripts with character visuals
+        │  Step 5: checkConsistency ─▶ fix inconsistencies
+        │
+        ▼
+  StoryOutput { scenes[], characters[], keyObjects[] }
+        │
+        ▼
+  FOR EACH scene:
+    imageService.generateSceneImage()
+        │  inject: styleConfig prompts
+        │  inject: character refs (avatar + sheet)
+        │  inject: scene ref (user photo OR prev scene)
+        │  ──▶ gemini-3-pro-image-preview [1K]
+        │  ──▶ base64 image
+        │
+        ▼
+  Update UI (DisplayPanel shows scene card)
+      </pre>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

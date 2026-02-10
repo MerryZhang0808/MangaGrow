@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Character } from '../types';
 import { Button } from './Button';
 import { X, Upload, Trash2, UserPlus, Sparkles, Plus } from 'lucide-react';
-import { generateCharacter } from '../services/geminiService';
+import { createCharacter } from '../services/characterService';
 
 interface CharacterLibraryProps {
   isOpen: boolean;
@@ -36,15 +36,7 @@ export const CharacterLibrary: React.FC<CharacterLibraryProps> = ({
     if (!newName || !newPhoto) return;
     setIsGenerating(true);
     try {
-      const { avatarUrl, description } = await generateCharacter(newName, newPhoto);
-      const newChar: Character = {
-        id: Date.now().toString(),
-        name: newName,
-        avatarUrl,
-        description,
-        originalPhotoUrls: [newPhoto],
-        createdAt: Date.now()
-      };
+      const newChar = await createCharacter(newName, newPhoto);
       setCharacters(prev => [...prev, newChar]);
       setView('list');
       setNewName("");

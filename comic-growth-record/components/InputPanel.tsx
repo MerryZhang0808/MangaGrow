@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Mic, Image as ImageIcon, X, SlidersHorizontal, Plus, ChevronDown, Wand2 } from 'lucide-react';
 import { Button } from './Button';
-import { transcribeAudio } from '../services/geminiService';
+import { transcribeAudio } from '../services/inputService';
 import { Character, ComicStyle, AspectRatio } from '../types';
 
 interface InputPanelProps {
