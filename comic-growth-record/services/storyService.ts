@@ -1,8 +1,16 @@
 import { GenerateContentResponse } from "@google/genai";
 import { StoryInput, StoryOutput, SceneScript, KeyObject, CharacterDef } from "../types";
-import { SYSTEM_PROMPT } from "../constants";
 import { getAiClient, withRetry, SAFETY_SETTINGS, TEXT_MODEL } from "./aiClient";
 import { getStyleDescription } from "./styleConfig";
+
+const STORY_SYSTEM_PROMPT = `你是一位儿童成长漫画故事创作助手。
+你的任务是将家长描述的孩子成长瞬间转化为温馨的漫画分镜脚本。
+要求：
+- 故事结构必须有起承转合
+- 每个分镜必须推动叙事，不允许纯装饰镜头
+- 人物描述必须包含完整视觉特征（发型、服装、面部）
+- 始终保持温馨、可爱、治愈的基调
+- 严格按要求的 JSON 格式输出`;
 
 // === Internal Types ===
 
@@ -90,7 +98,7 @@ ${charInfo || "（无已知人物）"}
     model: TEXT_MODEL,
     contents: prompt,
     config: {
-      systemInstruction: SYSTEM_PROMPT,
+      systemInstruction: STORY_SYSTEM_PROMPT,
       responseMimeType: "application/json",
       safetySettings: SAFETY_SETTINGS
     }
@@ -159,7 +167,7 @@ ${suggestionBlock}
     model: TEXT_MODEL,
     contents: prompt,
     config: {
-      systemInstruction: SYSTEM_PROMPT,
+      systemInstruction: STORY_SYSTEM_PROMPT,
       responseMimeType: "application/json",
       safetySettings: SAFETY_SETTINGS
     }
@@ -266,7 +274,7 @@ ${styleDesc}
     model: TEXT_MODEL,
     contents: prompt,
     config: {
-      systemInstruction: SYSTEM_PROMPT,
+      systemInstruction: STORY_SYSTEM_PROMPT,
       responseMimeType: "application/json",
       safetySettings: SAFETY_SETTINGS
     }
