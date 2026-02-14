@@ -1,7 +1,12 @@
-import { ComicStyle } from "../types";
+// Comic style enum (duplicated from frontend types for backend independence)
+export enum ComicStyle {
+  CARTOON = '温馨卡通',
+  WATERCOLOR = '柔和水彩',
+  FLAT = '简约扁平',
+  DOODLE = '手绘涂鸦',
+}
 
-// Complete English style prompt keywords for each comic style
-// These are hardcoded and must not be modified at runtime (Architecture.md C07)
+// C07: Complete English style prompt keywords (hardcoded, no runtime modification)
 const STYLE_PROMPTS: Record<ComicStyle, string> = {
   [ComicStyle.CARTOON]: 'soft lighting, warm color palette, rounded features, gentle expressions, pastel background, children\'s book illustration style, cozy atmosphere',
   [ComicStyle.WATERCOLOR]: 'watercolor technique, soft edges, muted tones, flowing colors, gentle gradients, hand-painted feel, dreamy atmosphere, light wash effect',
@@ -17,12 +22,10 @@ const STYLE_DESCRIPTIONS: Record<ComicStyle, string> = {
   [ComicStyle.DOODLE]: '手绘涂鸦风格：随性线条、童真感、手绘笔触、自然活泼',
 };
 
-// Get complete English style prompt keywords for image generation
-export const getStylePrompt = (style: ComicStyle): string => {
-  return STYLE_PROMPTS[style];
-};
+export function getStylePrompt(style: ComicStyle): string {
+  return STYLE_PROMPTS[style] || STYLE_PROMPTS[ComicStyle.CARTOON];
+}
 
-// Get Chinese style description for script generation context
-export const getStyleDescription = (style: ComicStyle): string => {
-  return STYLE_DESCRIPTIONS[style];
-};
+export function getStyleDescription(style: ComicStyle): string {
+  return STYLE_DESCRIPTIONS[style] || STYLE_DESCRIPTIONS[ComicStyle.CARTOON];
+}

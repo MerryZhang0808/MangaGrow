@@ -76,16 +76,17 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
 
       const sceneReferenceImages = specificRefImage.length > 0 ? specificRefImage : continuityReference;
 
+      const referenceCharIds = sortedRefChars
+        .map(r => libraryCharacters.find(c => c.name === r.name)?.id)
+        .filter(Boolean) as string[];
+
       const newImageUrl = await generateSceneImage({
         script: scriptToUse,
         style,
         ratio,
         characterContext,
         objectContext,
-        referenceChars: sortedRefChars.map(r => {
-          const full = libraryCharacters.find(c => c.name === r.name);
-          return full || { id: '', name: r.name, avatarUrl: r.avatarUrl, description: r.description, originalPhotoUrls: [], createdAt: 0 };
-        }),
+        referenceCharIds,
         sceneReferenceImages,
         isUserPhoto: specificRefImage.length > 0
       });
@@ -101,14 +102,19 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
 
   const handleExport = async () => {
     const zip = new JSZip();
-    scenes.forEach((scene, i) => {
+    for (let i = 0; i < scenes.length; i++) {
+      const scene = scenes[i];
       if (scene.imageUrl) {
-        const base64Data = scene.imageUrl.split(',')[1];
-        const mime = scene.imageUrl.split(';')[0].split(':')[1];
-        const ext = mime.split('/')[1];
-        zip.file(`scene_${i + 1}.${ext}`, base64Data, { base64: true });
+        try {
+          const response = await fetch(scene.imageUrl);
+          const blob = await response.blob();
+          const ext = blob.type.includes('png') ? 'png' : 'jpg';
+          zip.file(`scene_${i + 1}.${ext}`, blob);
+        } catch (e) {
+          console.warn(`Failed to fetch scene ${i + 1} image for export`, e);
+        }
       }
-    });
+    }
     const fullScript = scenes.map((s, i) => `Scene ${i+1}: ${s.script}`).join('\n\n');
     zip.file('story_script.txt', fullScript);
     const content = await zip.generateAsync({ type: 'blob' });

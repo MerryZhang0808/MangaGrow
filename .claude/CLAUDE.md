@@ -27,11 +27,13 @@
         → 用户审批通过后进入下一层
 
     Layer 4: 代码实现
+        → 调用 coder skill（/code）
         → 按 Tasks.md 逐个实现
         → 代码受 Architecture.md 约束
         → 代码受 rules/dev-constraints.md 自动约束
 
     Layer 5: 验证
+        → 调用 qa skill（/qa）
         → 对照三层文档检查
         → 功能完整性（vs Product-Spec.md）
         → 实现方式（vs Architecture.md）
@@ -54,6 +56,12 @@
         • Product-Spec.md 更新完成后
         • 用户提出技术方案相关问题时
         • 用户输入 /arch 时
+
+    - **coder**（手动触发）：
+        • 用户输入 /code 或 /code T-XX 时
+
+    - **qa**（手动触发）：
+        • 用户输入 /qa 时
 
 [项目状态检测与路由]
     初始化时自动检测项目进度：
@@ -89,7 +97,9 @@
         ├── CLAUDE.md                 # 本文件：SDD 流程协调器
         ├── skills/
         │   ├── product-spec-builder/ # Layer 1 技能：需求收集
-        │   └── architect/            # Layer 2+3 技能：架构设计 + 任务拆分
+        │   ├── architect/            # Layer 2+3 技能：架构设计 + 任务拆分
+        │   ├── coder/               # Layer 4 技能：代码实现
+        │   └── qa/                  # Layer 5 技能：质量验证
         └── rules/
             └── dev-constraints.md    # Layer 4 约束：代码开发规则
 
@@ -103,6 +113,8 @@
     - /prd：需求收集（触发 product-spec-builder）
     - /arch：架构设计（触发 architect）
     - /tasks：查看/更新任务清单
+    - /code [T-XX]：实现指定任务（触发 coder）
+    - /qa：质量验证（触发 qa）
     - /check：对照三层文档检查代码完整度
     - /run：本地运行项目
     - /stop：停止后台服务

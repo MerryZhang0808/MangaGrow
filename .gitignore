@@ -48,3 +48,6 @@ Thumbs.db
 
 # Build files
 *.tsbuildinfo
+
+# MangaGrow data (SQLite + images)
+data/

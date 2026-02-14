@@ -2,13 +2,16 @@
 
 ## 概述
 
-MangaGrow 采用 React + Vite + TypeScript 前端架构，所有 AI 能力通过 Gemini API 实现。
-核心架构升级方向：将现有的「单步 AI 调用」改为「多步管线 + 质量关卡」，
-将「单一服务文件」拆分为「专职服务模块」，通过角色参考表和风格参数锁定提升生成质量。
+MangaGrow 采用**前后端分离架构**：React 前端 + Node.js/Express 后端 + SQLite 数据库。
+前端负责 UI 交互，后端负责 AI 调用代理、数据持久化、图片文件存储。
+AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接调用 Gemini。
 
-技术栈：React 18 + Vite + TypeScript + Gemini API（@google/genai SDK）
-模型选型：gemini-3-flash-preview（文本）、gemini-3-pro-image-preview（图片）
-运行方式：纯前端 SPA，无后端，数据存 LocalStorage
+**前端**：React 18 + Vite + TypeScript
+**后端**：Node.js + Express + TypeScript
+**数据库**：SQLite（better-sqlite3，同步 API）
+**文件存储**：本地磁盘 `data/images/`
+**AI 模型**：gemini-3-flash-preview（文本）、gemini-3-pro-image-preview（图片）
+**运行方式**：前端 :3000（Vite dev server）+ 后端 :3001（Express），Vite proxy 转发 `/api/*`
 
 ---
 
@@ -17,63 +20,128 @@ MangaGrow 采用 React + Vite + TypeScript 前端架构，所有 AI 能力通过
 ### 模块总览
 
 ```
-App.tsx（调度中心）
+[前端] comic-growth-record/
+  App.tsx（调度中心）
   ├── InputPanel（输入采集）
   ├── DisplayPanel（分镜展示）
   ├── CharacterLibrary（人物库管理）
   │
   ├── services/
-  │   ├── inputService.ts        ← 输入处理（语音转文字、图片分析）
-  │   ├── storyService.ts        ← 故事管线（5步管线 + 质量关卡）
-  │   ├── imageService.ts        ← 图片生成（分镜图、角色头像）
-  │   ├── characterService.ts    ← 角色系统（参考表生成、档案管理）
-  │   ├── styleConfig.ts         ← 风格参数配置（4组参数锁定）
-  │   └── aiClient.ts            ← AI 调用基础层（客户端、重试、安全设置）
+  │   ├── apiClient.ts           ← 后端 API 客户端（HTTP 调用封装）
+  │   ├── storyService.ts        ← 故事生成（薄封装，调用后端 /api/ai/generate-story）
+  │   ├── imageService.ts        ← 图片生成（薄封装，调用后端 /api/ai/generate-image）
+  │   ├── characterService.ts    ← 角色系统（薄封装，调用后端 /api/characters + /api/ai/*）
+  │   └── inputService.ts        ← 输入处理（薄封装，调用后端 /api/ai/analyze-images）
   │
   ├── types.ts（类型定义）
-  ├── constants.ts（系统提示词）
   └── utils/
-      ├── imageUtils.ts          ← 图片压缩、格式转换
-      └── storageUtils.ts        ← LocalStorage 读写
+      └── imageUtils.ts          ← 前端图片工具（上传预览、格式转换）
+
+[后端] server/
+  index.ts（Express 入口）
+  ├── routes/
+  │   ├── ai.ts                  ← AI 代理路由（7 个端点，所有 Gemini 调用）
+  │   ├── characters.ts          ← 人物库 CRUD
+  │   ├── stories.ts             ← 漫画历史 CRUD
+  │   └── images.ts              ← 图片静态服务
+  │
+  ├── services/
+  │   ├── gemini.ts              ← Gemini API 客户端（API Key、重试、安全设置）
+  │   ├── storyPipeline.ts       ← 4 步故事管线（大纲→审核→脚本→一致性）
+  │   ├── imageGenerator.ts      ← 图片生成（提示词构造、参考图注入）
+  │   ├── characterAnalyzer.ts   ← 角色分析（照片分析、头像生成、性别/年龄识别）
+  │   ├── inputAnalyzer.ts       ← 输入处理（语音转文字、图片分析）
+  │   ├── styleConfig.ts         ← 风格参数配置（4 组提示词）
+  │   └── imageStorage.ts        ← 图片文件管理（保存、读取、删除）
+  │
+  └── db/
+      ├── index.ts               ← SQLite 连接（singleton，WAL 模式）
+      └── schema.ts              ← 建表语句 & 迁移
+
+[数据] data/（gitignored）
+  ├── manga.db                   ← SQLite 数据库文件
+  └── images/
+      ├── avatars/               ← 人物头像
+      └── scenes/                ← 漫画分镜图片
 ```
+
+**前端模块**（薄客户端，只负责 UI 和 API 调用）：
 
 | 模块名 | 职责 | 主要文件 | 依赖 |
 |--------|------|---------|------|
-| aiClient | AI 调用基础设施：客户端实例、重试机制、安全设置 | `services/aiClient.ts` | 无 |
-| styleConfig | 风格参数配置：4 组详细风格提示词 | `services/styleConfig.ts` | 无 |
-| inputService | 语音转文字、图片分析 | `services/inputService.ts` | aiClient |
-| characterService | 角色分析、头像生成、参考表生成、档案管理 | `services/characterService.ts` | aiClient, imageUtils |
-| storyService | 5 步故事管线（输入分析→大纲→审核→脚本→一致性检查）| `services/storyService.ts` | aiClient, characterService |
-| imageService | 分镜图片生成（提示词构造、参考图注入、生成调用）| `services/imageService.ts` | aiClient, styleConfig, characterService |
-| imageUtils | 图片压缩、DataURI 解析 | `utils/imageUtils.ts` | 无 |
-| storageUtils | LocalStorage 读写封装 | `utils/storageUtils.ts` | 无 |
+| apiClient | 后端 API 调用封装：fetch 包装、错误处理、类型安全 | `services/apiClient.ts` | 无 |
+| storyService | 故事生成薄封装：调用 apiClient 发送请求到后端 | `services/storyService.ts` | apiClient |
+| imageService | 图片生成薄封装：调用 apiClient 发送请求到后端 | `services/imageService.ts` | apiClient |
+| characterService | 角色系统薄封装：CRUD + AI 功能调用后端 | `services/characterService.ts` | apiClient |
+| inputService | 输入处理薄封装：调用 apiClient 发送请求到后端 | `services/inputService.ts` | apiClient |
+| imageUtils | 前端图片工具：上传预览、base64 转换 | `utils/imageUtils.ts` | 无 |
+
+**后端模块**（承载所有 AI 逻辑和数据管理）：
+
+| 模块名 | 职责 | 主要文件 | 依赖 |
+|--------|------|---------|------|
+| gemini | Gemini API 基础设施：客户端、重试、安全设置、模型常量 | `server/services/gemini.ts` | 无 |
+| styleConfig | 风格参数配置：4 组详细风格提示词 | `server/services/styleConfig.ts` | 无 |
+| storyPipeline | 4 步故事管线（大纲→审核→脚本→一致性检查）| `server/services/storyPipeline.ts` | gemini, styleConfig |
+| imageGenerator | 分镜图片生成（提示词构造、参考图注入）| `server/services/imageGenerator.ts` | gemini, styleConfig, imageStorage |
+| characterAnalyzer | 角色分析、头像生成、性别/年龄识别 | `server/services/characterAnalyzer.ts` | gemini, imageStorage |
+| inputAnalyzer | 语音转文字、图片分析 | `server/services/inputAnalyzer.ts` | gemini |
+| imageStorage | 图片文件管理：保存 base64 到磁盘、生成唯一文件名、删除 | `server/services/imageStorage.ts` | 无 |
+| db | SQLite 数据库连接和 schema 管理 | `server/db/index.ts`, `server/db/schema.ts` | 无 |
 
 ---
 
-### aiClient 模块
+### apiClient 模块（前端）
 
-**职责**：提供 Gemini API 调用的基础设施，所有服务通过此模块调用 API。
+**职责**：前端唯一的后端通信层，封装所有 `/api/*` HTTP 调用。
 
 **接口定义**：
 
 | 函数名 | 输入 | 输出 | 说明 |
 |--------|------|------|------|
-| `getAiClient()` | 无 | `GoogleGenAI` 实例 | 获取 API 客户端（读取 VITE_GEMINI_API_KEY） |
+| `fetchApi<T>(path, options?)` | `string`, `RequestInit` | `Promise<T>` | 基础 fetch 封装，自动处理 JSON 解析和错误 |
+| `postAi<T>(endpoint, body)` | `string`, `object` | `Promise<T>` | AI 端点调用：`POST /api/ai/{endpoint}` |
+| `getCharacters()` | 无 | `Promise<Character[]>` | 获取人物列表 |
+| `createCharacter(data)` | `CreateCharacterRequest` | `Promise<Character>` | 创建人物（含照片 base64） |
+| `updateCharacter(id, data)` | `string`, `Partial<Character>` | `Promise<Character>` | 更新人物信息 |
+| `deleteCharacter(id)` | `string` | `Promise<void>` | 删除人物 |
+| `getStories()` | 无 | `Promise<StorySummary[]>` | 获取历史列表 |
+| `saveStory(data)` | `SaveStoryRequest` | `Promise<Story>` | 保存漫画故事 |
+| `getStory(id)` | `string` | `Promise<Story>` | 获取故事详情 |
+| `deleteStory(id)` | `string` | `Promise<void>` | 删除故事 |
+
+**约束**：
+- 前端所有后端通信必须通过此模块，不允许在组件或其他 service 中直接 fetch
+- 所有响应必须符合标准格式 `{ success: boolean, data?: T, error?: string }`
+- 网络错误自动重试 1 次（仅限 5xx 和网络超时）
+
+---
+
+### gemini 模块（后端）
+
+**职责**：后端 Gemini API 调用基础设施，所有后端服务通过此模块调用 Gemini。
+
+**接口定义**：
+
+| 函数名 | 输入 | 输出 | 说明 |
+|--------|------|------|------|
+| `getAiClient()` | 无 | `GoogleGenAI` 实例 | 获取 API 客户端（读取 `process.env.GEMINI_API_KEY`） |
 | `withRetry<T>(operation, retries?)` | `() => Promise<T>`, `number` | `Promise<T>` | 指数退避重试，默认 3 次，4xx 不重试（429 除外） |
 | `SAFETY_SETTINGS` | - | `SafetySetting[]` | 全局安全设置常量 |
 | `TEXT_MODEL` | - | `string` | 文本模型常量 = `'gemini-3-flash-preview'` |
 | `IMAGE_MODEL` | - | `string` | 图片模型常量 = `'gemini-3-pro-image-preview'` |
 
 **约束**：
-- 所有 API 调用必须通过 `withRetry` 包装
+- 所有 Gemini API 调用必须通过 `withRetry` 包装
 - 模型名称必须从此模块的常量引用，不允许在其他文件硬编码模型名
-- API Key 通过 `import.meta.env.VITE_GEMINI_API_KEY` 读取，不允许使用 `process.env`
+- API Key 通过 `process.env.GEMINI_API_KEY` 读取（服务端 `.env` 文件）
+- 此模块仅在后端（`server/`）中使用，前端不允许导入
 
 ---
 
-### styleConfig 模块
+### styleConfig 模块（后端）
 
-**职责**：管理 4 种漫画风格的完整提示词参数。
+**职责**：管理 4 种漫画风格的完整提示词参数。迁移自前端，现仅在后端使用。
 
 **接口定义**：
 
@@ -98,21 +166,109 @@ App.tsx（调度中心）
 
 ---
 
-### inputService 模块
+### imageStorage 模块（后端）
 
-**职责**：处理用户输入（语音转文字、图片分析）。
+**职责**：管理图片文件的磁盘存储和读取。
 
 **接口定义**：
 
 | 函数名 | 输入 | 输出 | 说明 |
 |--------|------|------|------|
-| `transcribeAudio(audioBlob)` | `Blob` | `Promise<string>` | 语音转文字 |
-| `analyzeImages(imageUris)` | `string[]` | `Promise<ImageAnalysis[]>` | 分析多张图片，返回结构化结果 |
+| `saveImage(type, base64Data, mimeType?)` | `'avatars'\|'scenes'`, `string`, `string` | `string` | 保存 base64 图片到磁盘，返回相对路径（如 `avatars/abc123.png`） |
+| `getImageFullPath(relativePath)` | `string` | `string` | 返回图片的完整磁盘路径 |
+| `deleteImage(relativePath)` | `string` | `void` | 删除指定图片文件 |
+| `ensureDirectories()` | 无 | `void` | 确保 `data/images/avatars/` 和 `data/images/scenes/` 目录存在 |
 
-**内部流程（analyzeImages）**：
-1. 逐张压缩图片（maxWidth=800, quality=0.6）
-2. 调用 gemini-3-flash-preview 分析（当前代码使用 gemini-flash-latest，需统一）
-3. 解析 JSON 结果
+**文件命名规则**：
+- 格式：`{uuid}.{ext}`（如 `a1b2c3d4.png`）
+- UUID 使用 `crypto.randomUUID()`
+- 扩展名从 mimeType 推断（`image/png` → `.png`，`image/jpeg` → `.jpg`）
+
+**约束**：
+- 所有图片必须存储在 `data/images/{type}/` 下，不允许存到其他位置
+- 文件名必须唯一（UUID），防止覆盖
+- 服务启动时必须调用 `ensureDirectories()` 创建目录
+
+---
+
+### db 模块（后端）
+
+**职责**：SQLite 数据库连接和 schema 管理。
+
+**接口定义**：
+
+| 函数名 | 输入 | 输出 | 说明 |
+|--------|------|------|------|
+| `getDb()` | 无 | `Database` | 获取 SQLite 连接（singleton，WAL 模式） |
+| `initDb()` | 无 | `void` | 初始化数据库：创建表（如不存在） |
+
+**数据库表**：
+
+```sql
+CREATE TABLE IF NOT EXISTS characters (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  name TEXT NOT NULL,
+  avatar_path TEXT,
+  description TEXT,
+  original_photo_paths TEXT,  -- JSON array
+  reference_sheet_path TEXT,
+  gender TEXT,
+  age_group TEXT,
+  specific_age TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS stories (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  input_summary TEXT,
+  style TEXT,
+  aspect_ratio TEXT,
+  story_outline TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS scenes (
+  id TEXT PRIMARY KEY,
+  story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+  scene_number INTEGER NOT NULL,
+  script TEXT,
+  image_path TEXT,
+  emotional_beat TEXT,
+  created_at INTEGER NOT NULL
+);
+```
+
+**约束**：
+- 数据库连接必须使用 singleton 模式
+- 必须启用 WAL 模式（`PRAGMA journal_mode = WAL`）提升并发性能
+- 所有表必须包含 `user_id` 字段（当前为 NULL，预留多用户）
+- `stories` 删除时自动级联删除关联的 `scenes`（ON DELETE CASCADE）
+
+---
+
+### inputService 模块（前端薄封装 + 后端 inputAnalyzer）
+
+**前端 inputService**（薄封装）：
+
+| 函数名 | 输入 | 输出 | 说明 |
+|--------|------|------|------|
+| `transcribeAudio(audioBlob)` | `Blob` | `Promise<string>` | 调用 `apiClient.postAi('transcribe-audio', ...)` |
+| `analyzeImages(imageUris)` | `string[]` | `Promise<ImageAnalysis[]>` | 调用 `apiClient.postAi('analyze-images', ...)` |
+
+**后端 inputAnalyzer**（完整逻辑，迁移自前端）：
+
+| 函数名 | 输入 | 输出 | 说明 |
+|--------|------|------|------|
+| `transcribeAudio(audioBase64, mimeType)` | `string`, `string` | `Promise<string>` | 语音转文字，调用 TEXT_MODEL |
+| `analyzeImages(imageBase64s)` | `string[]` | `Promise<ImageAnalysis[]>` | 并行分析多张图片 |
+
+**后端内部流程（analyzeImages）**：
+1. 所有图片并行处理（Promise.all），每张图独立压缩（maxWidth=800, quality=0.6）+ 分析
+2. 调用 TEXT_MODEL（gemini-3-flash-preview）分析
+3. 解析 JSON 结果，按原始顺序排序返回
 4. 单张分析失败时返回降级描述，不中断整体流程
 
 **约束**：
@@ -122,29 +278,42 @@ App.tsx（调度中心）
 
 ---
 
-### characterService 模块
+### characterService 模块（前端薄封装 + 后端 characterAnalyzer）
 
-**职责**：角色系统管理——分析照片、生成头像、管理角色档案。
-
-**接口定义**：
+**前端 characterService**（薄封装，调用后端 API）：
 
 | 函数名 | 输入 | 输出 | 说明 |
 |--------|------|------|------|
-| `analyzeCharacter(name, photoDataUri)` | `string`, `string` | `Promise<string>` | 分析照片生成详细视觉描述（150-200 字） |
-| `generateAvatar(name, photoDataUri, description)` | `string`, `string`, `string` | `Promise<string>` | 生成 Q 版卡通头像，返回 base64 DataURI |
-| `generateReferenceSheet(name, photoDataUri, description)` | `string`, `string`, `string` | `Promise<ReferenceSheet>` | 🔬 生成角色参考表（正面+全身），需 POC 验证 |
-| `createCharacter(name, photoDataUri)` | `string`, `string` | `Promise<Character>` | 组合调用：分析 → 生成头像 → 生成参考表 → 返回完整角色 |
-| `getCharacterReferences(characters, sceneScript)` | `Character[]`, `string` | `CharacterRef[]` | 从角色列表中筛选当前分镜涉及的角色，返回参考图和描述 |
+| `createCharacter(name, photoBase64)` | `string`, `string` | `Promise<Character>` | 调用 `apiClient.createCharacter()`，后端执行完整创建流程 |
+| `getCharacters()` | 无 | `Promise<Character[]>` | 调用 `apiClient.getCharacters()` |
+| `updateCharacter(id, data)` | `string`, `Partial<Character>` | `Promise<Character>` | 调用 `apiClient.updateCharacter()` |
+| `deleteCharacter(id)` | `string` | `Promise<void>` | 调用 `apiClient.deleteCharacter()` |
+| `regenerateAvatar(id, gender?, ageGroup?, specificAge?)` | `string`, `string?`, `string?`, `string?` | `Promise<Character>` | 调用 `apiClient.postAi('generate-avatar', ...)` |
+| `updateCharacterDescription(character, gender, ageGroup, specificAge?)` | `Character`, `string`, `string`, `string?` | `string` | 纯前端函数：更新角色描述格式（不需要后端） |
+| `getCharacterReferences(characters, sceneScript)` | `Character[]`, `string` | `CharacterRef[]` | 纯前端函数：筛选当前分镜涉及的角色 |
+
+**后端 characterAnalyzer**（完整 AI 逻辑）：
+
+| 函数名 | 输入 | 输出 | 说明 |
+|--------|------|------|------|
+| `analyzeCharacter(name, photoBase64)` | `string`, `string` | `Promise<string>` | 分析照片生成详细视觉描述（150-200 字） |
+| `detectGenderAge(photoBase64)` | `string` | `Promise<{gender, ageGroup}>` | 识别性别和年龄段 |
+| `generateAvatar(name, photoBase64, description, gender?, ageGroup?, specificAge?)` | ... | `Promise<string>` | 生成 Q 版头像，返回图片文件路径（保存到磁盘） |
+| `generateReferenceSheet(name, photoBase64, description)` | ... | `Promise<ReferenceSheet>` | 🔬 生成参考表（POC 后决定） |
+| `createCharacterFull(name, photoBase64)` | `string`, `string` | `Promise<CharacterData>` | 组合调用：分析 → 头像 → 性别/年龄 → 参考表 → 存 DB → 返回 |
 
 **角色数据结构升级**：
 ```typescript
 interface Character {
   id: string;
   name: string;
-  avatarUrl: string;           // Q版头像（2K）
-  description: string;         // 详细视觉描述文字
+  avatarUrl: string;           // Q版头像（2K，1:1方形）
+  description: string;         // 详细视觉描述文字（包含性别、年龄、外貌特征）
   originalPhotoUrls: string[]; // 原始照片
   referenceSheetUrl?: string;  // 角色参考表图片（POC 后决定是否启用）
+  gender?: string;             // 性别：'男' | '女' | '未知'
+  ageGroup?: string;           // 年龄段：'婴儿(0-1岁)' | '幼儿(1-3岁)' | '儿童(3-6岁)' | '少儿(6-12岁)' | '成人' | '未知'
+  specificAge?: string;        // 具体年龄（可选）：'1.5岁' 等
   createdAt: number;
 }
 
@@ -155,22 +324,29 @@ interface ReferenceSheet {
 ```
 
 **约束**：
-- 角色头像分辨率必须使用 2K（2048x2048）
+- 角色头像分辨率必须使用 2K（2048x2048），比例固定为 1:1 方形
 - 生成头像时必须同时传入照片和文字描述（不允许只传文字）
 - 角色照片传入 API 前必须压缩
+- 性别/年龄识别必须在生成头像后立即执行（1-3秒）
+- 用户修改性别/年龄后，重新生成头像时必须将这些参数传入 API
+- 用户保存时，必须调用 `updateCharacterDescription()` 将性别/年龄写入 description
 - `referenceSheetUrl` 字段为可选，POC-01 验证通过后启用
 
 ---
 
-### storyService 模块（核心升级）
+### storyService 模块（前端薄封装 + 后端 storyPipeline）
 
-**职责**：5 步故事生成管线 + 2 个质量关卡。
-
-**接口定义**：
+**前端 storyService**（薄封装）：
 
 | 函数名 | 输入 | 输出 | 说明 |
 |--------|------|------|------|
-| `generateStory(input)` | `StoryInput` | `Promise<StoryOutput>` | 管线入口，执行完整 5 步流程 |
+| `generateStory(input)` | `StoryInput` | `Promise<StoryOutput>` | 调用 `apiClient.postAi('generate-story', input)` |
+
+**后端 storyPipeline**（完整 4 步管线，迁移自前端）：
+
+| 函数名 | 输入 | 输出 | 说明 |
+|--------|------|------|------|
+| `generateStory(input)` | `StoryInput` | `Promise<StoryOutput>` | 管线入口，执行完整 4 步流程 |
 
 **StoryInput 类型**：
 ```typescript
@@ -201,22 +377,18 @@ interface SceneScript {
 }
 ```
 
-**内部流程（5 步管线）**：
+**内部流程（4 步管线）**：
 
 ```
-Step 1: 输入分析（analyzeInput）
-  输入 → 用户文字 + 图片分析结果
-  输出 → 结构化事件 { who, what, emotion, keyDetails }
-  模型 → TEXT_MODEL
-  耗时 → ~1-2秒
-
-Step 2: 故事大纲生成（generateOutline）
-  输入 → 结构化事件 + 角色档案 + 风格
+Step 1: 故事大纲生成（generateOutline）
+  输入 → 用户文字 + 图片分析结果 + 角色档案 + 风格
   输出 → 故事大纲 { scenes: [{ beat, description, emotion }], arc }
   模型 → TEXT_MODEL
+  说明 → 直接从原始输入生成大纲（合并了原 Step 1 输入分析，
+         大纲生成 prompt 中内置事件提取逻辑，无需独立分析步骤）
   约束 → 必须有起承转合结构，必须有情感弧线
 
-Step 3: 大纲质量审核（reviewOutline）— 质量关卡 1
+Step 2: 大纲质量审核（reviewOutline）— 质量关卡
   输入 → 故事大纲
   输出 → { passed: boolean, issues: string[], suggestions: string[] }
   模型 → TEXT_MODEL
@@ -224,16 +396,16 @@ Step 3: 大纲质量审核（reviewOutline）— 质量关卡 1
     - 每个分镜是否推动叙事？（不允许纯装饰镜头）
     - 前后分镜是否有因果或时间连接？
     - 整组分镜是否有情感起伏？
-  不通过 → 带修改建议回到 Step 2（最多重试 2 次）
-  2 次仍不通过 → 使用最后一版大纲继续（降级，不阻塞）
+  不通过 → 降级继续（仅记录 issues，不触发重试）
 
-Step 4: 分镜脚本细化（detailScripts）
-  输入 → 审核通过的大纲 + 角色档案 + 风格描述
+Step 3: 分镜脚本细化（detailScripts）
+  输入 → 大纲 + 角色档案 + 风格描述 + 审核 issues（如有，用于引导优化）
   输出 → 逐个分镜的详细脚本
   约束 → 每个分镜的画面描述必须包含角色完整视觉特征
+  说明 → 如果 Step 2 审核有 issues，在脚本细化时参考 issues 做针对性优化
   模型 → TEXT_MODEL
 
-Step 5: 脚本一致性检查（checkConsistency）— 质量关卡 2
+Step 4: 脚本一致性检查（checkConsistency）— 质量校验
   输入 → 全部分镜脚本
   输出 → { passed: boolean, inconsistencies: string[] }
   检查维度：
@@ -245,24 +417,28 @@ Step 5: 脚本一致性检查（checkConsistency）— 质量关卡 2
 ```
 
 **约束**：
-- 5 步管线必须按顺序执行，不允许跳步
-- Step 3（质量关卡 1）最多重试 2 次，超过后降级继续
-- Step 5（质量关卡 2）不阻塞流程，只做局部修正
+- 4 步管线必须按顺序执行，不允许跳步
+- Step 2（质量关卡）仅审核、不重试，不通过时降级继续（issues 传递给 Step 3 参考）
+- Step 4（质量校验）不阻塞流程，只做局部修正
 - 分镜数量规则：简单故事 2-4 个，复杂故事先生成前 4 个
 - 用户上传 N 张图片时，必须严格生成 N 个分镜（1:1 对应）
 - 所有步骤的 JSON 输出必须经过 `JSON.parse` 验证
 
 ---
 
-### imageService 模块
+### imageService 模块（前端薄封装 + 后端 imageGenerator）
 
-**职责**：根据脚本生成漫画分镜图片。
-
-**接口定义**：
+**前端 imageService**（薄封装）：
 
 | 函数名 | 输入 | 输出 | 说明 |
 |--------|------|------|------|
-| `generateSceneImage(params)` | `SceneImageParams` | `Promise<string>` | 生成单个分镜图片，返回 base64 DataURI |
+| `generateSceneImage(params)` | `SceneImageParams` | `Promise<string>` | 调用 `apiClient.postAi('generate-image', params)`，返回图片 URL |
+
+**后端 imageGenerator**（完整逻辑，迁移自前端）：
+
+| 函数名 | 输入 | 输出 | 说明 |
+|--------|------|------|------|
+| `generateSceneImage(params)` | `SceneImageParams` | `Promise<string>` | 生成图片 → 保存到磁盘 → 返回相对路径 |
 
 **SceneImageParams 类型**：
 ```typescript
@@ -272,8 +448,9 @@ interface SceneImageParams {
   ratio: AspectRatio;              // 图片比例
   characterContext: string;        // 角色视觉特征描述文字
   objectContext: string;           // 关键物品描述
-  referenceChars: Character[];     // 角色参考图（头像/参考表）
-  sceneReferenceImages: string[];  // 场景参考图（用户照片或前一分镜图）
+  referenceCharIds: string[];      // 角色 ID 列表（后端从 DB 查找头像文件）
+  sceneReferenceImages: string[];  // 场景参考图 base64（用户照片或前一分镜图 URL）
+  isUserPhoto: boolean;            // 参考图是否为用户照片
 }
 ```
 
@@ -311,21 +488,23 @@ interface SceneImageParams {
 
 **需求引用**：Product-Spec.md → 分镜脚本生成、智能分镜拆分
 
-**方案选定**：5 步管线 + 2 质量关卡
+**方案选定**：4 步管线 + 1 质量关卡
 
 **方案描述**：
-将现有的单次 `generateScripts()` 调用替换为 `storyService.generateStory()` 5 步管线。
+`storyService.generateStory()` 执行 4 步管线。
 每步独立调用 TEXT_MODEL，步骤之间传递结构化 JSON 数据。
-质量关卡不阻塞流程——审核不通过时重试 2 次后降级继续，确保用户不会卡死。
+质量关卡仅审核不重试——不通过时将 issues 传递给下游步骤参考，确保不增加延迟。
 
 **选型理由**：
-- 选 5 步管线：每步专注一个任务，输出质量更稳定；质量关卡能过滤废镜头和逻辑断裂
-- 不选单步优化（在一个 prompt 里优化）：单步 prompt 越长，模型注意力越分散，控制力越弱
+- 选 4 步管线（v1.0 的 5 步合并为 4 步）：原 Step 1（输入分析→结构化事件）的输出是 Step 2 的中间变量，合并后减少 1 次 API 调用且不损失信息
+- 质量关卡不重试：flash 模型大纲质量已足够稳定，重试最坏增加 4 次 API 调用（10+ 秒），收益不足以抵消延迟
+- 不选单步优化（一个 prompt 完成全部）：单步 prompt 越长，模型注意力越分散，控制力越弱
 
 **实现约束**：
 - 管线内每步必须独立调用 API（不合并为一个超长 prompt）
-- Step 3 审核不通过时，修改建议必须传回 Step 2 作为 context（不是重新开始）
-- Step 5 发现不一致时，只修正不一致的字段，不重新生成全部脚本
+- Step 1 的 prompt 中必须内置事件提取逻辑（who/what/emotion/keyDetails），不需要独立的分析步骤
+- Step 2 审核不通过时，issues 传递给 Step 3 作为优化参考（不回退重试）
+- Step 4 发现不一致时，只修正不一致的字段，不重新生成全部脚本
 - 所有步骤的提示词必须要求 JSON 输出，并设置 `responseMimeType: "application/json"`
 
 **状态**：✅ 确定
@@ -339,10 +518,22 @@ interface SceneImageParams {
 **方案选定**：角色参考表 + 多参考图注入（需 POC 验证参考表生成部分）
 
 **方案描述**：
-1. 创建角色时：用户上传照片 → AI 分析生成视觉描述 → 生成 Q 版头像（2K）→ 尝试生成参考表
-2. 参考表（POC 后决定）：正面 + 全身，中性姿势和背景
-3. 生成分镜时：自动将角色头像（+ 参考表如有）作为 inlineData 传入 API
-4. 提示词中必须包含角色完整视觉特征描述（不允许只写名字）
+1. 创建角色时：
+   - 用户上传照片 → AI 分析生成视觉描述 → 生成 Q 版头像（2K，1:1方形）
+   - 生成头像后立即识别性别/年龄（1-3秒）
+   - 尝试生成参考表（POC 后决定）
+2. 用户编辑角色时：
+   - 可修改性别（下拉框：男/女/未知）
+   - 可修改年龄段（下拉框：婴儿/幼儿/儿童/少儿/成人/未知）
+   - 可填写具体年龄（文本框：如"1.5岁"）
+   - 修改后可重新生成头像（传入照片 + 性别 + 年龄参数）
+3. 年龄一致性保证：
+   - 用户保存时，性别/年龄信息写入 `character.description`
+   - description 格式示例："女孩，1-2岁幼儿（具体1.5岁），短发..."
+   - 后续生成漫画时，AI 读取 description 中的明确年龄信息，避免瞎猜（解决"头像1.5岁，漫画变3-4岁"的问题）
+4. 参考表（POC 后决定）：正面 + 全身，中性姿势和背景
+5. 生成分镜时：自动将角色头像（+ 参考表如有）作为 inlineData 传入 API
+6. 提示词中必须包含角色完整视觉特征描述（不允许只写名字）
 
 **选型理由**：
 - 选参考图注入：Gemini 支持 inlineData 传入参考图，视觉锚点比纯文字描述一致性高 30-40%
@@ -350,8 +541,12 @@ interface SceneImageParams {
 - 不选 LORA/SD：需要后端训练服务，第一期纯前端架构不支持
 
 **实现约束**：
-- 角色头像必须 2K 分辨率
+- 角色头像必须 2K 分辨率，1:1 方形比例
 - 生成头像时必须同时传入照片（inlineData）+ 文字描述
+- 重新生成头像时，必须传入用户修改后的性别/年龄参数
+- 性别/年龄识别调用 TEXT_MODEL，在生成头像后立即执行
+- 用户保存时，必须将性别/年龄信息写入 `description`（调用 `updateCharacterDescription()`）
+- description 格式必须包含明确年龄信息："性别，年龄段（具体年龄），外貌特征..."
 - 角色照片传入前必须压缩（maxWidth=800, quality=0.6）
 - Gemini API 最多 14 张参考图：每个角色最多 2 张，场景参考 1 张，预留余量
 - `referenceSheetUrl` 字段可选，POC-01 不通过则不启用
@@ -432,29 +627,41 @@ parts.push({ text: fullPrompt });
 用户输入文字/语音/照片
       │
       ▼
-[InputPanel] ──── 语音 ──→ inputService.transcribeAudio() → 文字
-      │                     照片 ──→ inputService.analyzeImages() → ImageAnalysis[]
+[前端 InputPanel] ──── 语音 ──→ inputService → POST /api/ai/transcribe-audio → 文字
+      │                          照片 ──→ inputService → POST /api/ai/analyze-images → ImageAnalysis[]
       │
       ▼
-[App.tsx handleGenerate]
+[前端 App.tsx handleGenerate]
       │
-      ├─ 1. 调用 inputService 处理输入
+      ├─ 1. 调用 inputService（→ 后端 inputAnalyzer → Gemini）
       │
-      ├─ 2. 调用 storyService.generateStory()
-      │     ├─ Step1: 输入分析 → 结构化事件
-      │     ├─ Step2: 故事大纲 → 起承转合结构
-      │     ├─ Step3: 大纲审核 → 通过/重试
-      │     ├─ Step4: 脚本细化 → 详细分镜脚本
-      │     └─ Step5: 一致性检查 → 修正
-      │     → 返回 StoryOutput
+      ├─ 2. 调用 storyService（→ POST /api/ai/generate-story）
+      │     [后端 storyPipeline 执行 4 步管线]
+      │     ├─ Step1: 故事大纲 → 起承转合结构（含输入分析）
+      │     ├─ Step2: 大纲审核 → 通过/降级（不重试）
+      │     ├─ Step3: 脚本细化 → 详细分镜脚本（参考审核 issues）
+      │     └─ Step4: 一致性检查 → 修正
+      │     → 返回 StoryOutput（JSON）
       │
-      ├─ 3. 设置 Scene[] 初始状态（loading）
+      ├─ 3. 前端设置 Scene[] 初始状态（loading）
       │
-      └─ 4. 逐个分镜调用 imageService.generateSceneImage()
+      └─ 4. 前端控制条件并行生成分镜图片
+            │
+            ├─ 有用户照片 → 并行调用 imageService（→ POST /api/ai/generate-image）
+            │   每张图使用对应的用户照片 base64 作为场景参考
+            │
+            └─ 无用户照片 → 串行调用 imageService（→ POST /api/ai/generate-image）
+                后一张传入前一张的图片 URL 作为连续性参考
+            │
+            [后端 imageGenerator 每次调用]：
+            ├─ 从 DB 查找角色头像文件
             ├─ 注入风格参数（styleConfig）
-            ├─ 注入角色参考（characterService.getCharacterReferences()）
-            ├─ 注入场景参考（用户照片或前一分镜图）
-            └─ 生成图片 → 更新 Scene 状态
+            ├─ 注入角色参考图（从磁盘读取头像文件）
+            ├─ 调用 Gemini 生成图片
+            ├─ 保存图片到 data/images/scenes/
+            └─ 返回图片 URL（/api/images/scenes/xxx.png）
+            │
+            前端更新 Scene 状态：imageUrl = 返回的 URL
 ```
 
 ### 角色创建数据流
@@ -463,17 +670,30 @@ parts.push({ text: fullPrompt });
 用户输入名字 + 上传照片
       │
       ▼
-[CharacterLibrary]
+[前端 CharacterLibrary] create 视图
       │
       ▼
-characterService.createCharacter(name, photoDataUri)
+characterService.createCharacter(name, photoBase64)
+      → POST /api/characters { name, photoBase64 }
+      │
+      ▼
+[后端 routes/characters.ts → characterAnalyzer]
       ├─ 1. analyzeCharacter() → 视觉描述文字
-      ├─ 2. generateAvatar() → Q版头像（2K）
-      ├─ 3. generateReferenceSheet() → 参考表（POC 后）
-      └─ 返回 Character 对象
+      ├─ 2. generateAvatar() → Q版头像 → 保存到 data/images/avatars/xxx.png
+      ├─ 3. detectGenderAge() → 识别性别/年龄（1-3秒）
+      ├─ 4. generateReferenceSheet() → 参考表（POC 后）
+      ├─ 5. 原始照片保存到 data/images/avatars/orig_xxx.jpg
+      └─ 6. 写入 SQLite characters 表 → 返回 Character（含 avatarUrl, gender, ageGroup）
       │
       ▼
-保存到 LocalStorage
+前端收到响应 → 更新 characters 状态 → 自动渲染小卡片
+      │
+      ▼
+用户点击小卡片 → [CharacterLibrary] detail 视图
+      ├─ 显示大图（src=/api/images/avatars/xxx.png）+ 性别/年龄字段
+      ├─ 用户可修改性别/年龄/具体年龄
+      ├─ 点击刷新按钮 → POST /api/ai/generate-avatar → 后端重新生成 → 返回新 URL
+      └─ 点击保存 → PUT /api/characters/:id → 后端更新 DB
 ```
 
 ---
@@ -484,11 +704,11 @@ characterService.createCharacter(name, photoDataUri)
 
 | 维度 | 标准 | 检查方法 | 不达标处理 |
 |------|------|---------|-----------|
-| 故事完整性 | 必须有起承转合，不允许戛然而止 | Step 3 自动审核 | 重试 2 次后降级 |
-| 分镜效率 | 每个分镜必须推动叙事，0 废镜头 | Step 3 审核"是否推动叙事" | 重试时要求删除废镜头 |
-| 情感弧线 | 至少有 1 个情感高点 | Step 3 审核"是否有情感起伏" | 重试时强调情感弧线 |
-| 角色一致性 | 同一角色在所有分镜中描述一致 | Step 5 一致性检查 | 局部修正不一致字段 |
-| 场景连贯性 | 前后分镜场景逻辑连贯 | Step 5 一致性检查 | 局部修正 |
+| 故事完整性 | 必须有起承转合，不允许戛然而止 | Step 2 自动审核 | 降级继续，issues 传递给 Step 3 参考 |
+| 分镜效率 | 每个分镜必须推动叙事，0 废镜头 | Step 2 审核"是否推动叙事" | issues 传递给 Step 3，脚本细化时优化 |
+| 情感弧线 | 至少有 1 个情感高点 | Step 2 审核"是否有情感起伏" | issues 传递给 Step 3，脚本细化时优化 |
+| 角色一致性 | 同一角色在所有分镜中描述一致 | Step 4 一致性检查 | 局部修正不一致字段 |
+| 场景连贯性 | 前后分镜场景逻辑连贯 | Step 4 一致性检查 | 局部修正 |
 | JSON 格式 | 所有步骤输出必须是合法 JSON | `JSON.parse()` 验证 | 重试 |
 
 ### 图片生成 质量标准
@@ -504,8 +724,11 @@ characterService.createCharacter(name, photoDataUri)
 
 | 维度 | 标准 | 检查方法 | 不达标处理 |
 |------|------|---------|-----------|
-| 描述完整性 | 视觉描述必须 150-200 字，涵盖发型/服装/面部/体型 | 代码检查字数 | 使用降级描述 |
-| 头像质量 | 2K 分辨率，人物居中，白色背景 | 人工审查 | 用户可重新生成 |
+| 描述完整性 | 视觉描述必须 150-200 字，涵盖性别/年龄/发型/服装/面部/体型 | 代码检查字数 | 使用降级描述 |
+| 年龄一致性 | description 必须包含明确年龄信息（如"1-2岁幼儿"或"1.5岁"） | 代码检查 description 格式 | 用户保存时强制写入 |
+| 性别识别准确度 | 识别结果与照片相符（人工抽查） | 人工审查 | 用户可手动修改 |
+| 年龄段识别准确度 | 识别结果误差不超过1个年龄段 | 人工审查 | 用户可手动修改 |
+| 头像质量 | 2K 分辨率，1:1方形，人物居中，白色背景 | 人工审查 | 用户可重新生成 |
 | 照片参考 | 生成头像时必须同时传入照片和文字描述 | 代码保证（强制参数） | 不会发生 |
 
 ---
@@ -516,21 +739,32 @@ characterService.createCharacter(name, photoDataUri)
 
 | 编号 | 约束规则 | 适用范围 | 原因 |
 |------|---------|---------|------|
-| C01 | 环境变量必须用 `VITE_` 前缀，代码中用 `import.meta.env.VITE_xxx` | 所有文件 | Vite 要求 |
-| C02 | 不允许在组件（.tsx）中直接调用 Gemini API，必须通过 services/ 层 | components/*.tsx | 关注点分离 |
-| C03 | 所有 AI 调用必须通过 `withRetry` 包装（至少 3 次重试） | services/*.ts | API 稳定性 |
-| C04 | 模型名称必须引用 `aiClient.ts` 中的常量，不允许硬编码 | services/*.ts | 统一管理，方便切换 |
-| C05 | 分镜图片分辨率固定 1K，角色头像分辨率固定 2K | imageService, characterService | 效率与质量平衡 |
-| C06 | 生成角色头像时必须同时传入照片（inlineData）和文字描述 | characterService | 质量保证 |
-| C07 | 图片生成的风格提示词必须从 `styleConfig.getStylePrompt()` 获取 | imageService | 风格一致性 |
-| C08 | 同一组分镜必须使用相同的 ComicStyle 和 AspectRatio | App.tsx, imageService | 视觉一致性 |
-| C09 | 故事管线 5 步必须按顺序执行，不允许跳步 | storyService | 质量保证 |
-| C10 | 质量关卡最多重试 2 次，超过后降级继续，不允许无限循环 | storyService | 防死循环 |
-| C11 | 所有 API 响应的 JSON 必须经过 `JSON.parse()` 验证 | services/*.ts | 防格式错误 |
-| C12 | 角色照片传入 API 前必须压缩（maxWidth=800, quality=0.6） | characterService, imageService | 防 payload 过大 |
-| C13 | `constants.ts` 中的系统提示词必须与 Product-Spec.md 一致 | constants.ts | 文档同步 |
-| C14 | 有参考图方案失败时必须降级为纯文字方案，不允许直接报错 | imageService | 用户体验 |
+| C01 | 后端环境变量在 `.env` 文件中定义（如 `GEMINI_API_KEY`），通过 `process.env` 读取；前端不再需要 API Key 环境变量 | server/*.ts, .env | API Key 安全 |
+| C02 | 前端组件（.tsx）不允许直接调用后端 API，必须通过 `services/` 层；前端 services 不允许直接 import `@google/genai` | components/*.tsx, services/*.ts | 关注点分离 |
+| C03 | 后端所有 Gemini API 调用必须通过 `withRetry` 包装（至少 3 次重试）；前端 apiClient 对 5xx 错误简单重试 1 次 | server/services/*.ts, apiClient.ts | API 稳定性 |
+| C04 | 模型名称必须引用 `server/services/gemini.ts` 中的常量，不允许硬编码 | server/services/*.ts | 统一管理 |
+| C05 | 分镜图片分辨率固定 1K，角色头像分辨率固定 2K | server/imageGenerator, server/characterAnalyzer | 效率与质量平衡 |
+| C06 | 生成角色头像时必须同时传入照片（inlineData）和文字描述 | server/characterAnalyzer | 质量保证 |
+| C07 | 图片生成的风格提示词必须从 `server/services/styleConfig.getStylePrompt()` 获取 | server/imageGenerator | 风格一致性 |
+| C08 | 同一组分镜必须使用相同的 ComicStyle 和 AspectRatio | 前端 App.tsx, 后端 imageGenerator | 视觉一致性 |
+| C09 | 故事管线 4 步必须按顺序执行，不允许跳步 | server/storyPipeline | 质量保证 |
+| C10 | 质量关卡仅审核、不重试，不通过时降级继续（issues 传递给下游步骤参考） | server/storyPipeline | 性能优先 |
+| C11 | 后端所有 Gemini API 响应的 JSON 必须经过 `JSON.parse()` 验证 | server/services/*.ts | 防格式错误 |
+| C12 | 角色照片传入 Gemini API 前必须压缩（maxWidth=800, quality=0.6） | server/characterAnalyzer, server/imageGenerator | 防 payload 过大 |
+| C13 | 系统提示词在后端服务中直接使用，必须与 Product-Spec.md 一致 | server/services/*.ts | 文档同步 |
+| C14 | 有参考图方案失败时必须降级为纯文字方案，不允许直接报错 | server/imageGenerator | 用户体验 |
 | C15 | Architecture.md 变更时必须同步更新 `architecture-diagram.html` | architecture-diagram.html | 文档可视化同步 |
+| C16 | 性别/年龄识别必须在生成头像后立即执行，不允许跳过 | server/characterAnalyzer | 年龄一致性保证 |
+| C17 | 角色头像比例固定为 1:1 方形（aspectRatio: "1:1"） | server/characterAnalyzer | 统一头像格式 |
+| C18 | 用户保存角色时，必须将性别/年龄信息写入 `character.description` | 前端 CharacterLibrary.tsx | 年龄一致性保证 |
+| C19 | description 格式必须包含明确年龄信息："性别，年龄段（具体年龄），外貌..." | server/characterAnalyzer, 前端 characterService | 后续漫画生成时 AI 有明确年龄约束 |
+| C20 | 前端不允许存储或读取 API Key，所有 AI 调用必须通过后端 `/api/ai/*` 端点 | 前端所有文件 | 安全 |
+| C21 | 图片文件必须存储在 `data/images/{type}/` 下（type: avatars/scenes），不允许存到其他位置 | server/imageStorage | 统一管理 |
+| C22 | 数据库所有表必须包含 `user_id` 字段（当前可为 NULL），为多用户预留 | server/db/schema.ts | 扩展性 |
+| C23 | 前端图片展示必须使用后端 URL（`/api/images/...`），不允许使用 base64 Data URL 长期存储 | 前端所有文件 | 内存和性能 |
+| C24 | 后端 API 必须返回标准 JSON 格式 `{ success: boolean, data?: any, error?: string }` | server/routes/*.ts | API 一致性 |
+| C25 | 图片保存到磁盘时必须使用唯一文件名（UUID），防止覆盖 | server/imageStorage | 数据安全 |
+| C26 | 前端 `services/*.ts` 不允许直接 import `@google/genai`，所有 AI 功能通过 `apiClient` 调用后端 | 前端 services/*.ts | 架构边界 |
 
 ---
 
@@ -551,3 +785,6 @@ characterService.createCharacter(name, photoDataUri)
 | 版本 | 日期 | 触发来源 | 变更内容 | 影响范围 |
 |------|------|---------|---------|---------|
 | v1.0 | 2026-02-09 | Product-Spec v1.0 | 初始架构设计 | 全部模块 |
+| v1.1 | 2026-02-10 | 性能优化 | 1) inputService 图片分析改为并行; 2) storyService 5步管线合并为4步（合并输入分析+大纲生成）; 3) 质量关卡改为仅审核不重试; 4) 图片生成改为条件并行（有照片并行/无照片串行）; 5) 约束 C09 更新为4步, C10 更新为不重试 | storyService, inputService, App.tsx 数据流, C09, C10 |
+| v1.2 | 2026-02-10 | Product-Spec v1.2 — 人物库优化（性别/年龄识别） | 1) characterService 新增 `detectGenderAge()` 和 `updateCharacterDescription()` 函数; 2) `generateAvatar()` 增加性别/年龄可选参数; 3) Character 数据结构新增 `gender`, `ageGroup`, `specificAge` 字段; 4) 角色创建流程增加性别/年龄识别步骤; 5) 人物一致性方案增加年龄一致性保证（性别/年龄写入 description）; 6) 新增约束 C16-C19; 7) 新增年龄一致性质量标准 | characterService, Character 类型, 角色创建数据流, 人物一致性方案, C16-C19, 角色系统质量标准 |
+| v1.3 | 2026-02-13 | Product-Spec v1.3 — 轻量后端（API 代理 + SQLite + 文件存储） | 1) 架构从纯前端 SPA 升级为前后端分离; 2) 新增 8 个后端模块（gemini/styleConfig/storyPipeline/imageGenerator/characterAnalyzer/inputAnalyzer/imageStorage/db）; 3) 前端 6 个服务模块简化为薄封装（调用后端 API）; 4) 删除前端 aiClient.ts 和 storageUtils.ts; 5) styleConfig 迁移到后端; 6) 新增 SQLite 数据库（characters/stories/scenes 表，预留 user_id）; 7) 图片存储从 base64 内存改为磁盘文件 + URL; 8) API Key 从前端 VITE_ 变量改为服务端 .env; 9) 约束 C01/C02/C03/C04/C07/C12/C13 更新适用范围; 10) 新增约束 C20-C26; 11) 所有数据流增加后端层 | 全部模块、所有数据流、约束 C01-C26 |

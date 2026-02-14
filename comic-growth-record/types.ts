@@ -16,9 +16,12 @@ export interface Character {
   id: string;
   name: string;
   avatarUrl: string;
-  description: string; // The AI generated text description of the character
+  description: string; // The AI generated text description of the character (includes gender/age info)
   originalPhotoUrls: string[];
   referenceSheetUrl?: string; // Multi-angle reference sheet (POC-01, optional)
+  gender?: string; // '男' | '女' | '未知'
+  ageGroup?: string; // '婴儿(0-1岁)' | '幼儿(1-3岁)' | '儿童(3-6岁)' | '少儿(6-12岁)' | '成人' | '未知'
+  specificAge?: string; // e.g., '1.5岁'
   createdAt: number;
 }
 
@@ -89,18 +92,6 @@ export interface CharacterRef {
   description: string;
   avatarUrl: string;
   referenceSheetUrl?: string;
-}
-
-// === imageService types ===
-export interface SceneImageParams {
-  script: string;
-  style: ComicStyle;
-  ratio: AspectRatio;
-  characterContext: string;
-  objectContext: string;
-  referenceChars: Character[];
-  sceneReferenceImages: string[];
-  isUserPhoto?: boolean; // true = user uploaded photo, false = previous scene continuity
 }
 
 export interface AppState {

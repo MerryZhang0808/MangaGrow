@@ -1,0 +1,22 @@
+{
+  "name": "mangagrow-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --no-warnings=ExperimentalWarning --import tsx index.ts",
+    "dev:watch": "tsx watch index.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^1.39.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.8.2"
+  }
+}

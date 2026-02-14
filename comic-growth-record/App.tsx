@@ -7,16 +7,14 @@ import { ComicStyle, AspectRatio, Scene, Character, KeyObject } from './types';
 import { analyzeImages } from './services/inputService';
 import { generateStory } from './services/storyService';
 import { generateSceneImage } from './services/imageService';
-import { getCharacterReferences } from './services/characterService';
-import { BookOpen, User, Plus, KeyRound } from 'lucide-react';
-
-const LOCAL_STORAGE_KEY_CHARS = 'comic_app_characters';
+import { getCharacterReferences, getCharacters } from './services/characterService';
+import { BookOpen, User, Plus } from 'lucide-react';
 
 const App: React.FC = () => {
   // State: Inputs
   const [inputText, setInputText] = useState("");
   const [inputImages, setInputImages] = useState<string[]>([]);
-  
+
   // State: Settings
   const [style, setStyle] = useState<ComicStyle>(ComicStyle.CARTOON);
   const [ratio, setRatio] = useState<AspectRatio>(AspectRatio.RATIO_4_3);
@@ -24,7 +22,7 @@ const App: React.FC = () => {
   // State: Output
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [keyObjects, setKeyObjects] = useState<KeyObject[]>([]);
-  const [storyCharacters, setStoryCharacters] = useState<KeyObject[]>([]); // Contains MERGED list of Library + Temp
+  const [storyCharacters, setStoryCharacters] = useState<KeyObject[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStage, setGenerationStage] = useState("");
 
@@ -32,45 +30,12 @@ const App: React.FC = () => {
   const [isCharLibOpen, setIsCharLibOpen] = useState(false);
   const [characters, setCharacters] = useState<Character[]>([]);
 
-  // State: Auth
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [isCheckingKey, setIsCheckingKey] = useState(true);
-
-  // Initialize
+  // Initialize: load characters from backend API
   useEffect(() => {
-    const init = async () => {
-      // Load Chars
-      const savedChars = localStorage.getItem(LOCAL_STORAGE_KEY_CHARS);
-      if (savedChars) {
-        setCharacters(JSON.parse(savedChars));
-      }
-
-      // Check Key
-      const win = window as any;
-      if (win.aistudio) {
-        const hasKey = await win.aistudio.hasSelectedApiKey();
-        setHasApiKey(hasKey);
-      } else {
-        // Fallback for dev environments without the bridge
-        setHasApiKey(true);
-      }
-      setIsCheckingKey(false);
-    };
-    init();
+    getCharacters()
+      .then(chars => setCharacters(chars))
+      .catch(e => console.error('[App] Failed to load characters:', e));
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(LOCAL_STORAGE_KEY_CHARS, JSON.stringify(characters));
-  }, [characters]);
-
-  const handleSelectKey = async () => {
-    const win = window as any;
-    if (win.aistudio) {
-      await win.aistudio.openSelectKey();
-    }
-    // Race condition mitigation: assume success
-    setHasApiKey(true);
-  };
 
   // Main Generation Logic — uses storyService pipeline + imageService
   const handleGenerate = async () => {
@@ -82,7 +47,7 @@ const App: React.FC = () => {
     setStoryCharacters([]);
 
     try {
-      // 1. Analyze Images via inputService
+      // 1. Analyze Images via inputService (→ backend)
       let imageAnalysis: import('./types').ImageAnalysis[] = [];
       if (inputImages.length > 0) {
         setGenerationStage("分析照片内容...");
@@ -93,7 +58,7 @@ const App: React.FC = () => {
         }
       }
 
-      // 2. Generate Story via storyService (5-step pipeline)
+      // 2. Generate Story via storyService (→ backend 4-step pipeline)
       setGenerationStage("构思故事大纲...");
       const storyResult = await generateStory({
         text: inputText,
@@ -123,7 +88,6 @@ const App: React.FC = () => {
       generatedStoryCharsRaw.forEach((char: KeyObject) => {
         const normalizedName = char.name.toLowerCase().trim();
         if (!libraryCharMap.has(normalizedName)) {
-          console.log(`Adding new temporary character: ${char.name}`);
           mergedCharacters.push(char);
         }
       });
@@ -151,65 +115,64 @@ const App: React.FC = () => {
         `[物品: ${o.name}] ${o.description}`
       ).join('\n');
 
-      // 3. Generate Images via imageService (streaming effect)
-      let previousGeneratedImage: string | null = null;
+      // 3. Generate Images via imageService (→ backend, conditional parallel)
+      const hasUserPhotos = inputImages.length > 0 && inputImages.length >= initialScenes.length;
 
-      for (let i = 0; i < initialScenes.length; i++) {
-        const scene = initialScenes[i];
-
-        // 1:1 mapping: scene i uses input image i (if available)
-        const specificInputImage = (inputImages && inputImages[i]) ? [inputImages[i]] : [];
-
-        // Continuity: use previous scene image if no user photo for this scene
-        const continuityReference: string[] = [];
-        if (i > 0 && previousGeneratedImage && specificInputImage.length === 0) {
-          continuityReference.push(previousGeneratedImage);
-        }
+      // Helper: build params and generate one scene image
+      const generateOne = async (scene: Scene, sceneIndex: number, sceneRefImages: string[], isPhoto: boolean) => {
+        const sortedRefChars = getCharacterReferences(characters, scene.script);
+        const referenceCharIds = sortedRefChars
+          .map(r => characters.find(c => c.name === r.name)?.id)
+          .filter(Boolean) as string[];
 
         try {
-          // Get relevant character references via characterService
-          const sortedRefChars = getCharacterReferences(characters, scene.script);
-
-          const referenceImages = specificInputImage.length > 0 ? specificInputImage : continuityReference;
-
-          setGenerationStage(`绘制第 ${i + 1}/${initialScenes.length} 幅画面...`);
-
           const imageUrl = await generateSceneImage({
             script: scene.script,
             style,
             ratio,
             characterContext,
             objectContext,
-            referenceChars: sortedRefChars.map(r => {
-              const full = characters.find(c => c.name === r.name);
-              return full || { id: '', name: r.name, avatarUrl: r.avatarUrl, description: r.description, originalPhotoUrls: [], createdAt: 0 };
-            }),
-            sceneReferenceImages: referenceImages,
-            isUserPhoto: specificInputImage.length > 0
+            referenceCharIds,
+            sceneReferenceImages: sceneRefImages,
+            isUserPhoto: isPhoto
           });
-
-          previousGeneratedImage = imageUrl;
-
           setScenes(prev => prev.map(s =>
             s.id === scene.id ? { ...s, imageUrl, isLoading: false } : s
           ));
+          return imageUrl;
         } catch (error) {
           console.error(`Failed to generate image for scene ${scene.sceneNumber}`, error);
           setScenes(prev => prev.map(s =>
             s.id === scene.id ? { ...s, isLoading: false, error: "Image generation failed" } : s
           ));
+          return null;
+        }
+      };
+
+      if (hasUserPhotos) {
+        // Parallel: each scene uses its own user photo as reference
+        setGenerationStage(`并行绘制 ${initialScenes.length} 幅画面...`);
+        await Promise.all(
+          initialScenes.map((scene, i) =>
+            generateOne(scene, i, [inputImages[i]], true)
+          )
+        );
+      } else {
+        // Sequential: use previous generated image URL for environment consistency
+        let previousGeneratedImage: string | null = null;
+        for (let i = 0; i < initialScenes.length; i++) {
+          const scene = initialScenes[i];
+          const continuityRef = (i > 0 && previousGeneratedImage) ? [previousGeneratedImage] : [];
+          setGenerationStage(`绘制第 ${i + 1}/${initialScenes.length} 幅画面...`);
+          const result = await generateOne(scene, i, continuityRef, false);
+          if (result) previousGeneratedImage = result;
         }
       }
 
     } catch (error) {
       console.error("Workflow failed", error);
       const msg = error instanceof Error ? error.message : "Unknown error";
-      if (msg.includes("403") || msg.includes("Permission Denied")) {
-        alert("API Key权限不足或无效。请尝试重新选择 API Key。");
-        setHasApiKey(false);
-      } else {
-        alert(msg);
-      }
+      alert(msg);
     } finally {
       setIsGenerating(false);
       setGenerationStage("");
@@ -225,42 +188,6 @@ const App: React.FC = () => {
     setIsGenerating(false);
   };
 
-  if (isCheckingKey) {
-    return <div className="flex h-screen w-screen items-center justify-center bg-white text-gray-400">Loading...</div>;
-  }
-
-  if (!hasApiKey) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-gray-50 flex-col gap-6 p-4">
-        <div className="text-center space-y-2">
-          <div className="w-16 h-16 bg-primary-100 text-primary-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <BookOpen size={32} />
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">漫画成长记录</h1>
-          <p className="text-gray-500 max-w-md">
-             Transform your child's growth moments into heartwarming comic strips using AI.
-          </p>
-        </div>
-        
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full max-w-md">
-          <p className="text-sm text-gray-600 mb-4 text-center">
-            要使用此应用，您需要选择一个 Google Gemini API Key。<br/>
-            请确保该 Key 关联了已开通计费的 Google Cloud 项目。
-          </p>
-          <Button onClick={handleSelectKey} className="w-full h-12 text-base">
-            <KeyRound size={18} className="mr-2" />
-            连接 API Key
-          </Button>
-          <div className="mt-4 text-center">
-            <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-xs text-primary-600 hover:underline">
-              关于计费说明
-            </a>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white font-sans text-gray-900">
       {/* 1. Left Navigation Rail */}
@@ -268,17 +195,17 @@ const App: React.FC = () => {
         <div className="mb-8 p-2 bg-primary-50 text-primary-600 rounded-xl">
           <BookOpen size={24} />
         </div>
-        
+
         <div className="flex-1 flex flex-col gap-6 w-full items-center">
-          <button 
+          <button
             onClick={() => setIsCharLibOpen(true)}
             className="p-3 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-all"
             title="人物库"
           >
             <User size={24} />
           </button>
-          
-          <button 
+
+          <button
             onClick={resetApp}
             className="p-3 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-all"
             title="新创作"
@@ -286,12 +213,10 @@ const App: React.FC = () => {
             <Plus size={24} />
           </button>
         </div>
-        
+
         <div className="mt-auto">
-          {/* Settings / Profile */}
           <button className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 hover:bg-primary-50 hover:text-primary-600 transition-colors">
             <div className="w-full h-full rounded-full overflow-hidden">
-               {/* Placeholder avatar */}
                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 m-auto"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             </div>
           </button>
@@ -299,8 +224,8 @@ const App: React.FC = () => {
       </div>
 
       {/* Sidebar Overlay (Character Library) */}
-      <CharacterLibrary 
-        isOpen={isCharLibOpen} 
+      <CharacterLibrary
+        isOpen={isCharLibOpen}
         onClose={() => setIsCharLibOpen(false)}
         characters={characters}
         setCharacters={setCharacters}
@@ -308,7 +233,7 @@ const App: React.FC = () => {
 
       {/* 2. Middle Input Column */}
       <div className="w-[400px] flex-shrink-0 h-full border-r border-gray-100 bg-white z-20 flex flex-col">
-        <InputPanel 
+        <InputPanel
           text={inputText}
           setText={setInputText}
           images={inputImages}
@@ -326,13 +251,13 @@ const App: React.FC = () => {
 
       {/* 3. Right Display Area */}
       <div className="flex-1 h-full bg-gray-50 relative overflow-hidden">
-        <DisplayPanel 
+        <DisplayPanel
           scenes={scenes}
           setScenes={setScenes}
           keyObjects={keyObjects}
           storyCharacters={storyCharacters}
-          libraryCharacters={characters} // Pass full library for reference lookup
-          inputImages={inputImages} // PASS GLOBAL INPUT IMAGES FOR REGENERATION CONTEXT
+          libraryCharacters={characters}
+          inputImages={inputImages}
           isGenerating={isGenerating}
           generationStage={generationStage}
           style={style}

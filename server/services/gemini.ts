@@ -1,15 +1,19 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
 
-// Model constants - all services must reference these, no hardcoding
+// C04: Model name constants - all backend services must reference these
 export const TEXT_MODEL = 'gemini-3-flash-preview';
 export const IMAGE_MODEL = 'gemini-3-pro-image-preview';
 
-// Get fresh AI client instance
-export const getAiClient = () => {
-  return new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-};
+// C01: API Key from server-side .env only
+export function getAiClient(): GoogleGenAI {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('[Gemini] GEMINI_API_KEY not set in .env');
+  }
+  return new GoogleGenAI({ apiKey });
+}
 
-// Common safety settings to prevent over-blocking on innocent content
+// Common safety settings
 export const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -17,23 +21,26 @@ export const SAFETY_SETTINGS = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// Retry wrapper for API calls with exponential backoff + jitter
+/**
+ * C03: Retry wrapper with exponential backoff + jitter (3 retries).
+ * 4xx errors don't retry (except 429).
+ */
 export async function withRetry<T>(operation: () => Promise<T>, retries = 3): Promise<T> {
-  let lastError;
+  let lastError: unknown;
   for (let i = 0; i < retries; i++) {
     try {
       return await operation();
     } catch (e: any) {
       lastError = e;
       const errMsg = e.message || (typeof e === 'object' ? JSON.stringify(e) : String(e));
-      console.warn(`API call failed (attempt ${i + 1}/${retries}):`, errMsg);
+      console.warn(`[Gemini] API call failed (attempt ${i + 1}/${retries}):`, errMsg);
 
-      // If it's a 4xx error (client error), generally don't retry unless it's 429 (Too Many Requests)
+      // 4xx errors (client error) don't retry, except 429 (rate limit)
       if (e.status && e.status >= 400 && e.status < 500 && e.status !== 429) {
         throw e;
       }
 
-      // Wait before retrying (exponential backoff + jitter)
+      // Exponential backoff + jitter
       const baseDelay = 1000 * Math.pow(2, i);
       const jitter = Math.random() * 1000;
       await new Promise(resolve => setTimeout(resolve, baseDelay + jitter));
