@@ -88,11 +88,17 @@
     ├── Architecture.md               # Layer 2: 架构设计文档
     ├── Tasks.md                      # Layer 3: 任务清单
     ├── Product-Spec-CHANGELOG.md     # 需求变更记录
-    ├── comic-growth-record/          # 项目源代码
+    ├── architecture-diagram.html     # 架构图（需与 Architecture.md 同步，C15）
+    ├── QA-Report.md                  # Layer 5: QA 报告（/qa 自动生成，覆盖式）
+    ├── comic-growth-record/          # 前端源代码
     │   ├── App.tsx
-    │   ├── constants.ts
-    │   ├── services/geminiService.ts
+    │   ├── services/apiClient.ts     # 后端 API 调用封装
     │   └── ...
+    ├── server/                       # 后端源代码
+    │   ├── index.ts                  # Express 入口（端口 3001）
+    │   ├── services/                 # AI 服务模块
+    │   ├── routes/                   # REST 路由
+    │   └── db/                       # SQLite 数据层
     └── .claude/
         ├── CLAUDE.md                 # 本文件：SDD 流程协调器
         ├── skills/

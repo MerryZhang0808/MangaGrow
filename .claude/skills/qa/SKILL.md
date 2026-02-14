@@ -110,7 +110,9 @@
 
 ### Phase 7: 报告生成
 
-读取 `skills/qa/report-template.md`，填充检查结果，输出完整报告。
+1. 读取 `skills/qa/report-template.md`，填充检查结果
+2. 将完整报告写入项目根目录 `QA-Report.md`（覆盖式，只保留最新一份）
+3. 同时在对话中输出报告内容
 
 ---
 
