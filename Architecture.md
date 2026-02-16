@@ -23,8 +23,9 @@ AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接
 [前端] comic-growth-record/
   App.tsx（调度中心）
   ├── InputPanel（输入采集）
-  ├── DisplayPanel（分镜展示）
+  ├── DisplayPanel（分镜展示 + 导出）
   ├── CharacterLibrary（人物库管理）
+  ├── HistoryPanel（历史记录侧边栏）  ← v1.4 新增
   │
   ├── services/
   │   ├── apiClient.ts           ← 后端 API 客户端（HTTP 调用封装）
@@ -35,7 +36,8 @@ AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接
   │
   ├── types.ts（类型定义）
   └── utils/
-      └── imageUtils.ts          ← 前端图片工具（上传预览、格式转换）
+      ├── imageUtils.ts          ← 前端图片工具（上传预览、格式转换）
+      └── posterGenerator.ts     ← 网格海报生成（Canvas API）  ← v1.4 新增
 
 [后端] server/
   index.ts（Express 入口）
@@ -75,6 +77,8 @@ AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接
 | characterService | 角色系统薄封装：CRUD + AI 功能调用后端 | `services/characterService.ts` | apiClient |
 | inputService | 输入处理薄封装：调用 apiClient 发送请求到后端 | `services/inputService.ts` | apiClient |
 | imageUtils | 前端图片工具：上传预览、base64 转换 | `utils/imageUtils.ts` | 无 |
+| posterGenerator | 网格海报生成：Canvas 拼图、自适应排版、PNG 导出 | `utils/posterGenerator.ts` | 无 |
+| HistoryPanel | 历史记录侧边栏：列表浏览、加载故事、删除 | `components/HistoryPanel.tsx` | apiClient |
 
 **后端模块**（承载所有 AI 逻辑和数据管理）：
 
@@ -105,9 +109,10 @@ AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接
 | `createCharacter(data)` | `CreateCharacterRequest` | `Promise<Character>` | 创建人物（含照片 base64） |
 | `updateCharacter(id, data)` | `string`, `Partial<Character>` | `Promise<Character>` | 更新人物信息 |
 | `deleteCharacter(id)` | `string` | `Promise<void>` | 删除人物 |
-| `getStories()` | 无 | `Promise<StorySummary[]>` | 获取历史列表 |
-| `saveStory(data)` | `SaveStoryRequest` | `Promise<Story>` | 保存漫画故事 |
-| `getStory(id)` | `string` | `Promise<Story>` | 获取故事详情 |
+| `getStories()` | 无 | `Promise<StorySummary[]>` | 获取历史列表（含标题、日期、缩略图、分镜数） |
+| `saveStory(data)` | `SaveStoryRequest` | `Promise<Story>` | 保存漫画故事（自动保存） |
+| `getStory(id)` | `string` | `Promise<Story>` | 获取故事详情（含分镜） |
+| `updateStory(id, data)` | `string`, `UpdateStoryRequest` | `Promise<Story>` | 更新故事（标题修改、分镜同步） |
 | `deleteStory(id)` | `string` | `Promise<void>` | 删除故事 |
 
 **约束**：
@@ -223,11 +228,13 @@ CREATE TABLE IF NOT EXISTS characters (
 CREATE TABLE IF NOT EXISTS stories (
   id TEXT PRIMARY KEY,
   user_id TEXT,
+  title TEXT,                -- v1.4: AI 生成的故事标题（用户可修改）
   input_summary TEXT,
   style TEXT,
   aspect_ratio TEXT,
   story_outline TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER         -- v1.4: 最后修改时间（用于同步）
 );
 
 CREATE TABLE IF NOT EXISTS scenes (
@@ -347,6 +354,7 @@ interface ReferenceSheet {
 | 函数名 | 输入 | 输出 | 说明 |
 |--------|------|------|------|
 | `generateStory(input)` | `StoryInput` | `Promise<StoryOutput>` | 管线入口，执行完整 4 步流程 |
+| `generateTitle(text, imageAnalysis?)` | `string`, `ImageAnalysis[]?` | `Promise<string>` | v1.4: 根据故事内容生成简短标题（5-15字） |
 
 **StoryInput 类型**：
 ```typescript
@@ -362,6 +370,7 @@ interface StoryInput {
 **StoryOutput 类型**：
 ```typescript
 interface StoryOutput {
+  title: string;                     // v1.4: AI 生成的故事标题
   totalScenes: number;
   currentBatch: SceneScript[];
   hasMore: boolean;
@@ -479,6 +488,105 @@ interface SceneImageParams {
 - 参考图总数不超过 6 张（3 角色 × 2 张），留余量给场景参考
 - 风格提示词必须从 styleConfig 获取，不允许硬编码
 - 有参考图方案失败时必须降级为纯文字方案，不允许直接报错
+
+---
+
+### posterGenerator 模块（前端，v1.4 新增）
+
+**职责**：将分镜图片拼合为网格海报 PNG 图片，纯前端 Canvas 实现。
+
+**接口定义**：
+
+| 函数名 | 输入 | 输出 | 说明 |
+|--------|------|------|------|
+| `generatePoster(options)` | `PosterOptions` | `Promise<Blob>` | 生成海报 PNG Blob |
+
+**PosterOptions 类型**：
+```typescript
+interface PosterOptions {
+  title: string;              // 故事标题
+  date: string;               // 创建日期（格式化后的字符串）
+  scenes: { imageUrl: string; script: string }[];  // 分镜列表
+  watermark?: string;         // 水印文字，默认 'MangaGrow'
+}
+```
+
+**内部流程**：
+1. 创建离屏 Canvas
+2. 计算海报尺寸：基于分镜数量和图片尺寸自动计算
+   - 固定 2 列，行数 = Math.ceil(scenes.length / 2)
+   - 标题区高度：120px
+   - 水印区高度：60px
+   - 分镜间距：20px
+   - 每个分镜：图片 + 下方脚本文字（文字区高度 60px）
+3. 绘制白色背景（#FFFFFF）
+4. 绘制标题区（居中，标题字号 36px 黑色，日期字号 18px #999）
+5. 逐个绘制分镜（fetch 图片 → drawImage + fillText）
+   - 奇数末行居中排列
+6. 绘制水印区（底部居中，18px #CCCCCC）
+7. `canvas.toBlob('image/png')` 返回 Blob
+
+**分镜排版规则**（固定 2 列，奇数末行居中）：
+
+| 分镜数 | 行数 | 排法 |
+|-------|------|------|
+| 2 | 1 | 2 列 |
+| 3 | 2 | 2 + 1（居中）|
+| 4 | 2 | 2×2 |
+| 5 | 3 | 2+2+1 |
+| 6 | 3 | 2×3 |
+| 7 | 4 | 2+2+2+1 |
+| 8 | 4 | 2×4 |
+
+**约束**：
+- 不引入第三方库（html2canvas 等），使用原生 Canvas API
+- 图片通过 fetch + createImageBitmap 加载（处理跨域）
+- 脚本文字超长时截断并加省略号（单行最多 30 字）
+- 水印文字固定为 'MangaGrow'（不可配置）
+
+---
+
+### HistoryPanel 组件（前端，v1.4 新增）
+
+**职责**：左侧折叠侧边栏，展示历史记录列表，与 CharacterLibrary 交互一致。
+
+**Props 定义**：
+```typescript
+interface HistoryPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSelectStory: (storyId: string) => void;  // 选中故事时回调
+  currentStoryId: string | null;               // 当前正在查看的故事 ID（高亮）
+}
+```
+
+**内部状态**：
+- `stories: StorySummary[]`：历史列表数据
+- `isLoading: boolean`：加载状态
+
+**StorySummary 类型**：
+```typescript
+interface StorySummary {
+  id: string;
+  title: string;              // 故事标题
+  createdAt: number;          // 创建时间戳
+  thumbnailUrl: string;       // 第一张分镜缩略图 URL
+  sceneCount: number;         // 分镜数量
+}
+```
+
+**内部流程**：
+1. `isOpen` 变为 true 时，调用 `apiClient.getStories()` 获取列表
+2. 按 `createdAt` 倒序排列
+3. 每条记录卡片：标题 + 日期 + 缩略图 + 分镜数
+4. 点击卡片 → 调用 `onSelectStory(storyId)`
+5. `currentStoryId` 对应的卡片高亮显示
+6. 长按/右键卡片 → 确认删除 → `apiClient.deleteStory(id)` → 刷新列表
+
+**约束**：
+- 交互方式与 CharacterLibrary 完全一致（折叠侧边栏、关闭按钮位置、动画效果）
+- 空状态显示引导文案
+- 删除前必须弹出确认对话框
 
 ---
 
@@ -619,6 +727,80 @@ parts.push({ text: fullPrompt });
 
 ---
 
+### 故事标题生成 技术方案（v1.4 新增）
+
+**需求引用**：Product-Spec.md v1.4 → 故事标题
+
+**方案选定**：管线外独立调用 TEXT_MODEL
+
+**方案描述**：
+故事管线 4 步完成后，独立调用 `storyPipeline.generateTitle()` 生成标题。
+标题不插入管线内部，因为标题不影响分镜脚本质量。
+
+**选型理由**：
+- 不插入管线：标题与脚本质量无关，独立调用更清晰，不增加管线复杂度
+- 不在前端生成：标题生成需要 AI，必须走后端
+
+**实现约束**：
+- 调用 TEXT_MODEL，使用 `responseMimeType: "text/plain"`（纯文本，不需要 JSON）
+- 标题长度 5-15 字，超长时截断
+- 生成失败时降级为 `input_summary` 的前 15 字 + "..."
+
+**状态**：✅ 确定
+
+---
+
+### 自动保存与同步 技术方案（v1.4 新增）
+
+**需求引用**：Product-Spec.md v1.4 → 自动保存与同步
+
+**方案选定**：生成后立即 POST + 修改后 debounce PUT
+
+**方案描述**：
+- 生成完成后：前端调用 `apiClient.saveStory()` 立即保存（POST），获得 storyId
+- 用户修改（编辑脚本、重绘图片、修改标题）后：1 秒 debounce 后调用 `apiClient.updateStory(id, data)` 同步（PUT）
+- App.tsx 维护 `currentStoryId` 状态，用于区分新创作与加载历史
+
+**选型理由**：
+- 不选手动保存：家长用户容易忘记点保存
+- 不选实时同步（每次击键）：请求过频，浪费资源
+- 1 秒 debounce：平衡实时性和性能
+
+**实现约束**：
+- POST 保存时必须包含：title、input_summary、style、aspect_ratio、story_outline、scenes（含 image_path）
+- PUT 同步时只传修改的字段（partial update）
+- debounce 使用 `setTimeout` + `clearTimeout`，不引入额外库
+- 保存状态指示：`saving` → `saved`，通过 App.tsx 状态管理
+
+**状态**：✅ 确定
+
+---
+
+### 网格海报导出 技术方案（v1.4 新增）
+
+**需求引用**：Product-Spec.md v1.4 → 网格海报导出
+
+**方案选定**：前端原生 Canvas API
+
+**方案描述**：
+前端使用 Canvas API 将分镜图片拼合为完整海报。
+用户点击「导出海报」→ 调用 `posterGenerator.generatePoster()` → 生成 Blob → `saveAs()` 下载。
+
+**选型理由**：
+- 选原生 Canvas：无额外依赖，分镜图片已在前端可用，Canvas 绑定图片 + 文字足够
+- 不选 html2canvas：引入第三方依赖，且对复杂 CSS 渲染有兼容性问题
+- 不选后端生成：海报是纯视觉合成，不需要 AI 能力，后端无必要
+
+**实现约束**：
+- 使用 `OffscreenCanvas` 或 `document.createElement('canvas')`
+- 图片加载使用 `fetch` + `createImageBitmap`（支持跨域的后端图片 URL）
+- 输出格式固定 PNG（`canvas.toBlob('image/png')`）
+- 文件名格式：`{title}_poster.png`（title 中非法字符替换为下划线）
+
+**状态**：✅ 确定
+
+---
+
 ## 数据流
 
 ### 主流程数据流（用户点击「生成漫画」）
@@ -662,6 +844,15 @@ parts.push({ text: fullPrompt });
             └─ 返回图片 URL（/api/images/scenes/xxx.png）
             │
             前端更新 Scene 状态：imageUrl = 返回的 URL
+            │
+      ├─ 5. [v1.4] 调用 storyService（→ POST /api/ai/generate-title）
+      │     → 返回标题文字，显示在右侧面板顶部
+      │
+      └─ 6. [v1.4] 自动保存
+            调用 apiClient.saveStory({ title, scenes, style, ... })
+            → POST /api/stories → 返回 storyId
+            前端设置 currentStoryId = storyId
+            显示"已保存"状态指示
 ```
 
 ### 角色创建数据流
@@ -694,6 +885,57 @@ characterService.createCharacter(name, photoBase64)
       ├─ 用户可修改性别/年龄/具体年龄
       ├─ 点击刷新按钮 → POST /api/ai/generate-avatar → 后端重新生成 → 返回新 URL
       └─ 点击保存 → PUT /api/characters/:id → 后端更新 DB
+```
+
+### 历史记录浏览数据流（v1.4 新增）
+
+```
+用户点击左侧「历史记录」图标
+      │
+      ▼
+[前端 HistoryPanel] 打开侧边栏
+      │
+      ▼
+apiClient.getStories()
+      → GET /api/stories
+      → 返回 StorySummary[]（title, createdAt, thumbnailUrl, sceneCount）
+      │
+      ▼
+显示历史列表（按 createdAt 倒序）
+      │
+      ▼
+用户点击某条记录
+      │
+      ▼
+apiClient.getStory(id)
+      → GET /api/stories/:id
+      → 返回 Story（含 scenes[]，每个 scene 有 image_path）
+      │
+      ▼
+[前端 App.tsx]
+      ├─ 设置 currentStoryId = id
+      ├─ 设置 scenes = story.scenes（imageUrl = /api/images/scenes/xxx.png）
+      ├─ 设置 title = story.title
+      └─ 右侧 DisplayPanel 渲染分镜（与生成结果展示完全一致）
+```
+
+### 修改同步数据流（v1.4 新增）
+
+```
+用户执行修改操作（编辑脚本 / 重绘图片 / 修改标题）
+      │
+      ▼
+[前端 App.tsx]
+      ├─ 立即更新本地 state
+      └─ 触发 debounce（1 秒）
+            │
+            ▼（1 秒无新操作后）
+      apiClient.updateStory(currentStoryId, { 修改的字段 })
+            → PUT /api/stories/:id
+            → 后端更新 stories 表 + scenes 表 + updated_at
+            │
+            ▼
+      前端显示"已保存"状态指示
 ```
 
 ---
@@ -731,6 +973,32 @@ characterService.createCharacter(name, photoBase64)
 | 头像质量 | 2K 分辨率，1:1方形，人物居中，白色背景 | 人工审查 | 用户可重新生成 |
 | 照片参考 | 生成头像时必须同时传入照片和文字描述 | 代码保证（强制参数） | 不会发生 |
 
+### 标题生成 质量标准（v1.4 新增）
+
+| 维度 | 标准 | 检查方法 | 不达标处理 |
+|------|------|---------|-----------|
+| 标题长度 | 5-15 个字 | 代码检查字数 | 截断或使用 input_summary 前 15 字 |
+| 标题相关性 | 标题反映故事核心内容 | 人工审查 | 用户可点击编辑修改 |
+| 生成可靠性 | 标题生成失败不阻塞主流程 | try-catch | 降级为 input_summary 前 15 字 + "..." |
+
+### 自动保存 质量标准（v1.4 新增）
+
+| 维度 | 标准 | 检查方法 | 不达标处理 |
+|------|------|---------|-----------|
+| 保存完整性 | 保存数据必须包含 title、scenes（含 image_path）、style、aspect_ratio | 代码检查请求体 | 不会发生（代码保证） |
+| 同步可靠性 | PUT 失败不阻塞用户操作 | try-catch + 静默重试 | 下次修改时重新同步 |
+| 保存状态指示 | 用户能看到"保存中"/"已保存"状态 | UI 检查 | 不会发生（代码保证） |
+
+### 海报导出 质量标准（v1.4 新增）
+
+| 维度 | 标准 | 检查方法 | 不达标处理 |
+|------|------|---------|-----------|
+| 排版正确性 | 分镜按 2 列网格排列，奇数末行居中 | 人工审查 | 代码 bug，修复 |
+| 图片清晰度 | 海报图片与原始分镜同等清晰度 | 人工审查 | 检查 Canvas drawImage 参数 |
+| 标题显示 | 海报包含故事标题和日期 | 人工审查 | 代码 bug，修复 |
+| 水印显示 | 底部显示 "MangaGrow" | 人工审查 | 代码 bug，修复 |
+| 导出格式 | PNG 格式，文件名包含标题 | 代码检查 | 不会发生（代码保证） |
+
 ---
 
 ## 约束清单（红线）
@@ -765,6 +1033,13 @@ characterService.createCharacter(name, photoBase64)
 | C24 | 后端 API 必须返回标准 JSON 格式 `{ success: boolean, data?: any, error?: string }` | server/routes/*.ts | API 一致性 |
 | C25 | 图片保存到磁盘时必须使用唯一文件名（UUID），防止覆盖 | server/imageStorage | 数据安全 |
 | C26 | 前端 `services/*.ts` 不允许直接 import `@google/genai`，所有 AI 功能通过 `apiClient` 调用后端 | 前端 services/*.ts | 架构边界 |
+| C27 | 生成完成后必须自动保存（POST /api/stories），不允许依赖用户手动保存 | 前端 App.tsx | 数据安全（v1.4） |
+| C28 | 用户修改分镜（脚本编辑、重绘、标题修改）后必须 debounce 同步到后端（PUT /api/stories/:id），间隔 1 秒 | 前端 App.tsx | 数据一致性（v1.4） |
+| C29 | 海报生成必须使用原生 Canvas API，不引入 html2canvas 等第三方库 | 前端 utils/posterGenerator.ts | 依赖最小化（v1.4） |
+| C30 | 海报排版固定 2 列，奇数分镜末行居中，水印固定 "MangaGrow" | 前端 utils/posterGenerator.ts | 排版一致性（v1.4） |
+| C31 | 标题生成失败不允许阻塞主流程，必须降级为 input_summary 前 15 字 | server/storyPipeline, 前端 App.tsx | 容错（v1.4） |
+| C32 | HistoryPanel 交互方式必须与 CharacterLibrary 一致（折叠侧边栏、关闭按钮、动画） | 前端 components/HistoryPanel.tsx | 交互一致性（v1.4） |
+| C33 | 加载历史故事后在右侧面板呈现，展示结构必须与生成结果完全一致 | 前端 App.tsx, DisplayPanel | 体验一致性（v1.4） |
 
 ---
 
@@ -788,3 +1063,4 @@ characterService.createCharacter(name, photoBase64)
 | v1.1 | 2026-02-10 | 性能优化 | 1) inputService 图片分析改为并行; 2) storyService 5步管线合并为4步（合并输入分析+大纲生成）; 3) 质量关卡改为仅审核不重试; 4) 图片生成改为条件并行（有照片并行/无照片串行）; 5) 约束 C09 更新为4步, C10 更新为不重试 | storyService, inputService, App.tsx 数据流, C09, C10 |
 | v1.2 | 2026-02-10 | Product-Spec v1.2 — 人物库优化（性别/年龄识别） | 1) characterService 新增 `detectGenderAge()` 和 `updateCharacterDescription()` 函数; 2) `generateAvatar()` 增加性别/年龄可选参数; 3) Character 数据结构新增 `gender`, `ageGroup`, `specificAge` 字段; 4) 角色创建流程增加性别/年龄识别步骤; 5) 人物一致性方案增加年龄一致性保证（性别/年龄写入 description）; 6) 新增约束 C16-C19; 7) 新增年龄一致性质量标准 | characterService, Character 类型, 角色创建数据流, 人物一致性方案, C16-C19, 角色系统质量标准 |
 | v1.3 | 2026-02-13 | Product-Spec v1.3 — 轻量后端（API 代理 + SQLite + 文件存储） | 1) 架构从纯前端 SPA 升级为前后端分离; 2) 新增 8 个后端模块（gemini/styleConfig/storyPipeline/imageGenerator/characterAnalyzer/inputAnalyzer/imageStorage/db）; 3) 前端 6 个服务模块简化为薄封装（调用后端 API）; 4) 删除前端 aiClient.ts 和 storageUtils.ts; 5) styleConfig 迁移到后端; 6) 新增 SQLite 数据库（characters/stories/scenes 表，预留 user_id）; 7) 图片存储从 base64 内存改为磁盘文件 + URL; 8) API Key 从前端 VITE_ 变量改为服务端 .env; 9) 约束 C01/C02/C03/C04/C07/C12/C13 更新适用范围; 10) 新增约束 C20-C26; 11) 所有数据流增加后端层 | 全部模块、所有数据流、约束 C01-C26 |
+| v1.4 | 2026-02-14 | Product-Spec v1.4 — 故事标题 + 自动保存 + 网格海报导出 + 历史记录 | 1) storyPipeline 新增 `generateTitle()` 函数; 2) StoryOutput 新增 `title` 字段; 3) stories 表新增 `title TEXT` 和 `updated_at INTEGER` 列; 4) apiClient 新增 `updateStory()` 函数; 5) 新增前端 posterGenerator 模块（Canvas 网格海报生成）; 6) 新增前端 HistoryPanel 组件（历史记录侧边栏）; 7) 新增 StorySummary 类型; 8) 主流程数据流新增标题生成和自动保存步骤; 9) 新增历史记录浏览数据流和修改同步数据流; 10) 新增 4 组质量标准（标题/自动保存/海报/历史）; 11) 新增约束 C27-C33; 12) 3 个新增技术方案（标题生成/自动保存/海报导出） | storyPipeline, apiClient, db schema, App.tsx, DisplayPanel, 新增 posterGenerator + HistoryPanel |

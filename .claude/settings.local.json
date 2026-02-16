@@ -41,7 +41,14 @@
       "WebFetch(domain:localhost)",
       "Bash(findstr:*)",
       "Bash(tasklist:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(git commit:*)",
+      "Bash(ls:*)",
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(pacman -S:*)",
+      "Bash(apt-get install:*)",
+      "Bash(powershell.exe -Command \"echo test\")",
+      "Bash(ssh:*)"
     ]
   }
 }

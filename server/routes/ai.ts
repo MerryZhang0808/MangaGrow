@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { transcribeAudio, analyzeImages } from '../services/inputAnalyzer.js';
-import { generateStory } from '../services/storyPipeline.js';
+import { generateStory, generateTitle } from '../services/storyPipeline.js';
 import { generateSceneImage, CharacterImageRef } from '../services/imageGenerator.js';
 import { analyzeCharacter, detectGenderAge, generateAvatar } from '../services/characterAnalyzer.js';
 import { saveImage } from '../services/imageStorage.js';
@@ -46,6 +46,21 @@ router.post('/generate-story', async (req: Request, res: Response) => {
     res.json({ success: true, data: result });
   } catch (e: any) {
     console.error('[AI Route] generate-story failed:', e.message);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/ai/generate-title
+router.post('/generate-title', async (req: Request, res: Response) => {
+  try {
+    const { text, imageAnalysis } = req.body;
+    if (!text) {
+      return res.status(400).json({ success: false, error: 'text is required' });
+    }
+    const title = await generateTitle(text, imageAnalysis);
+    res.json({ success: true, data: { title } });
+  } catch (e: any) {
+    console.error('[AI Route] generate-title failed:', e.message);
     res.status(500).json({ success: false, error: e.message });
   }
 });

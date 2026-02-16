@@ -1,6 +1,6 @@
 # 代码自检清单
 
-实现完成后，对照此清单逐项检查。来源：dev-constraints.md C01-C26。
+实现完成后，对照此清单逐项检查。来源：dev-constraints.md C01-C33。
 
 ---
 
@@ -48,6 +48,27 @@
 
 ### API 规范
 - [ ] **C24** 响应格式 `{ success: boolean, data?: any, error?: string }`
+
+---
+
+## 通用检查
+
+- [ ] **C13** 系统提示词与 Product-Spec.md 一致
+- [ ] **C15** Architecture.md 变更时同步更新 architecture-diagram.html
+- [ ] **C18** 用户保存角色时，性别/年龄信息写入 description
+- [ ] **C19** description 格式："性别，年龄段（具体年龄），外貌特征..."
+### 自动保存与同步（v1.4）
+- [ ] **C27** 生成完成后自动保存，不依赖用户手动保存
+- [ ] **C28** 修改后 debounce 1 秒同步到后端（PUT /api/stories/:id）
+- [ ] **C31** 标题生成失败不阻塞主流程，降级为 input_summary 前 15 字
+- [ ] **C33** 加载历史故事后展示结构与生成结果完全一致
+
+### 海报导出（v1.4）
+- [ ] **C29** 海报生成使用原生 Canvas API，不引入 html2canvas
+- [ ] **C30** 海报排版固定 2 列，奇数末行居中，水印 "MangaGrow"
+
+### 历史记录（v1.4）
+- [ ] **C32** HistoryPanel 交互与 CharacterLibrary 一致（折叠侧边栏、关闭按钮、动画）
 
 ---
 

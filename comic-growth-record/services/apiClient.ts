@@ -97,6 +97,17 @@ export async function saveStory(data: Record<string, any>): Promise<any> {
   });
 }
 
+export async function getStory(id: string): Promise<any> {
+  return fetchApi<any>(`/stories/${id}`);
+}
+
+export async function updateStory(id: string, data: Record<string, any>): Promise<any> {
+  return fetchApi<any>(`/stories/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data)
+  });
+}
+
 export async function deleteStory(id: string): Promise<void> {
   return fetchApi<void>(`/stories/${id}`, {
     method: 'DELETE'

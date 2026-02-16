@@ -1,9 +1,9 @@
 # Tasks - MangaGrow 漫画成长记录
 
 ## 概述
-共 24 个任务：1 个 POC 任务，23 个开发任务。
-T-01~T-15 已完成（基础模块拆分 + 核心管线 + 集成调度 + 性能优化 + 人物库优化）。
-T-16~T-23 为 v1.3 后端迁移任务（Express + SQLite + 图片文件存储 + 前端瘦化）。
+共 30 个任务：1 个 POC 任务，29 个开发任务。
+T-01~T-23 已完成（基础模块拆分 + 核心管线 + 性能优化 + 人物库优化 + 后端迁移）。
+T-24~T-29 为 v1.4 功能增强任务（故事标题 + 自动保存 + 历史记录 + 网格海报导出）。
 POC-01 与开发任务独立，结果影响 T-05。
 
 ---
@@ -286,31 +286,32 @@ T-01 ──→ T-03 ──→ T-07 ──→ T-12 ✅
          ├──→ T-08 ──→ T-13 ──→ T-14 ──→ T-15 ✅
 T-02 ──→ T-06 ✅
 
-=== v1.3 后端迁移（待开发）===
+=== v1.3 后端迁移（已完成）===
 
-T-16 (后端基础设施)
-  ├──→ T-17 (gemini + styleConfig) ──→ T-18 (inputAnalyzer)
-  │         │                          ──→ T-19 (storyPipeline)
-  │         └──→ T-20 (characterAnalyzer + imageGenerator)
-  │                    │
-  └──→ T-21 (REST 路由) ← 依赖 T-16 + T-18 + T-19 + T-20
-                │
-                └──→ T-22 (前端 apiClient + 瘦化 + Vite proxy)
-                          │
-                          └──→ T-23 (集成验证 + 清理 + 文档同步)
+T-16 → T-17 → T-18/T-19/T-20 → T-21 → T-22 → T-23 ✅
+
+=== v1.4 功能增强（待开发）===
+
+T-24 (DB 迁移 + 标题生成 API)
+  │
+  ├──→ T-25 (自动保存 + 同步)
+  │         │
+  │         └──→ T-27 (历史记录侧边栏) ──→ T-29 (集成验证 + 文档同步)
+  │
+  └──→ T-26 (网格海报导出) ──→ T-29
+
+T-28 (导航栏 + DisplayPanel UI 更新) ──→ T-29
 ```
 
 **推荐执行顺序**：
 
 | 阶段 | 任务 | 说明 |
 |------|------|------|
-| Phase 1-8 | T-01~T-15 | ✅ 全部完成 |
-| **Phase 9** | **T-16** | **后端基础设施：Express + SQLite + imageStorage** |
-| **Phase 10** | **T-17** | **后端 AI 基础设施：gemini + styleConfig** |
-| **Phase 11** | **T-18, T-19, T-20** | **后端 AI 服务模块，三者可并行** |
-| **Phase 12** | **T-21** | **后端 REST 路由，依赖所有服务模块** |
-| **Phase 13** | **T-22** | **前端瘦化 + Vite proxy + 启动脚本** |
-| **Phase 14** | **T-23** | **集成验证 + 文档同步 + 清理** |
+| Phase 1-14 | T-01~T-23 | ✅ 全部完成 |
+| **Phase 15** | **T-24** | **DB 迁移 + 后端标题生成 + PUT 路由** |
+| **Phase 16** | **T-25, T-26, T-28** | **三者可并行：自动保存、海报导出、UI 更新** |
+| **Phase 17** | **T-27** | **历史记录侧边栏（依赖自动保存）** |
+| **Phase 18** | **T-29** | **集成验证 + 文档同步** |
 
 ---
 
@@ -711,6 +712,243 @@ T-16 (后端基础设施)
 
 ---
 
+### [T-24] DB 迁移 + 后端标题生成 + PUT 路由
+
+- **目的**：扩展 stories 表字段，实现后端标题生成功能和故事更新 API
+- **方案引用**：Architecture.md v1.4 → db 模块 / storyPipeline 模块 / 故事标题生成技术方案
+- **修改文件**：
+  - `server/db/schema.ts`：stories 表新增 `title TEXT` 和 `updated_at INTEGER` 列（ALTER TABLE 迁移）
+  - `server/services/storyPipeline.ts`：新增 `generateTitle(text, imageAnalysis?)` 函数
+  - `server/routes/ai.ts`：新增 `POST /api/ai/generate-title` 端点
+  - `server/routes/stories.ts`：新增 `PUT /api/stories/:id` 端点（更新标题、分镜等）
+- **实现要求**：
+  1. DB 迁移：检测 stories 表是否有 title 列，没有则 ALTER TABLE 添加
+  2. `generateTitle(text, imageAnalysis?)`:
+     - 调用 TEXT_MODEL，提示词要求生成 5-15 字温馨标题
+     - 使用 `responseMimeType: "text/plain"`（纯文本）
+     - 失败时返回 input_summary 前 15 字 + "..."
+  3. PUT /api/stories/:id：
+     - 接收 partial update（title、scenes 等）
+     - 更新 `updated_at = Date.now()`
+     - scenes 更新时：删除旧 scenes → 插入新 scenes（事务）
+  4. GET /api/stories 返回数据增加 title 和第一张分镜的 image_path（作为缩略图）
+- **约束**：
+  - 必须遵守 C03（withRetry）、C04（模型常量）、C24（标准 JSON 响应）、C31（标题失败降级）
+- **验收标准**：
+  - [ ] stories 表包含 title 和 updated_at 列（新建和迁移都支持）
+  - [ ] `generateTitle()` 返回 5-15 字标题
+  - [ ] `generateTitle()` 失败时降级为 input_summary 前 15 字
+  - [ ] `POST /api/ai/generate-title` 端点可用
+  - [ ] `PUT /api/stories/:id` 端点可用，支持 partial update
+  - [ ] `GET /api/stories` 返回 title 和 thumbnailUrl
+  - [ ] 无 TypeScript 编译错误
+- **依赖**：基于 T-23 已完成的后端
+- **状态**：✅ 已完成
+
+---
+
+### [T-25] 前端自动保存与同步
+
+- **目的**：生成完成后自动保存故事，修改后自动同步到后端
+- **方案引用**：Architecture.md v1.4 → 自动保存与同步技术方案 / 主流程数据流 / 修改同步数据流
+- **修改文件**：
+  - `comic-growth-record/services/apiClient.ts`：新增 `updateStory(id, data)` 函数
+  - `comic-growth-record/services/storyService.ts`：新增 `generateTitle(text, imageAnalysis?)` 薄封装
+  - `comic-growth-record/App.tsx`：新增自动保存逻辑、currentStoryId 状态、debounce 同步
+  - `comic-growth-record/types.ts`：新增 `StorySummary` 类型，更新 `StoryOutput` 增加 `title`
+- **实现要求**：
+  1. apiClient 新增：
+     - `updateStory(id: string, data: UpdateStoryRequest): Promise<Story>`
+     - `generateTitle(text: string, imageAnalysis?: ImageAnalysis[]): Promise<string>`（调用 `postAi('generate-title', ...)`）
+  2. App.tsx 新增状态：
+     - `currentStoryId: string | null`（null = 新创作，有值 = 已保存/加载历史）
+     - `saveStatus: 'idle' | 'saving' | 'saved'`
+     - `storyTitle: string`（显示和编辑用）
+  3. handleGenerate 流程末尾新增：
+     - 调用 `storyService.generateTitle()` 获取标题
+     - 调用 `apiClient.saveStory()` 保存故事（含标题、scenes、style 等）
+     - 设置 `currentStoryId` = 返回的 storyId
+  4. 修改同步逻辑：
+     - 编辑脚本 / 重绘图片 / 修改标题后触发 debounce
+     - debounce 1 秒后调用 `apiClient.updateStory(currentStoryId, { 变更字段 })`
+     - debounce 使用 `useRef` + `setTimeout` + `clearTimeout`
+  5. 保存状态指示：修改触发 → `saving` → PUT 成功 → `saved`
+- **约束**：
+  - 必须遵守 C27（自动保存）、C28（debounce 同步）、C31（标题失败降级）
+- **验收标准**：
+  - [ ] 生成完成后自动调用 saveStory，currentStoryId 有值
+  - [ ] 标题自动生成并显示
+  - [ ] 编辑脚本后 1 秒自动同步到后端
+  - [ ] 重绘图片后自动同步
+  - [ ] 标题修改后自动同步
+  - [ ] 保存状态指示正常（saving → saved）
+  - [ ] 标题生成失败时降级处理
+  - [ ] 无 TypeScript 错误
+- **依赖**：依赖 [T-24]（后端 API 就绪）
+- **状态**：✅ 已完成
+
+---
+
+### [T-26] 网格海报导出
+
+- **目的**：实现前端 Canvas 网格海报生成和导出功能
+- **方案引用**：Architecture.md v1.4 → posterGenerator 模块 / 网格海报导出技术方案
+- **新建文件**：
+  - `comic-growth-record/utils/posterGenerator.ts`：Canvas 海报生成
+- **修改文件**：
+  - `comic-growth-record/components/DisplayPanel.tsx`：导出按钮改为下拉（海报 + ZIP）
+- **实现要求**：
+  1. posterGenerator 实现：
+     - `generatePoster(options: PosterOptions): Promise<Blob>`
+     - 创建离屏 Canvas，计算尺寸（基于分镜数量）
+     - 绘制白色背景 → 标题区 → 分镜网格 → 水印区
+     - 分镜排版：固定 2 列，奇数末行居中
+     - 图片加载：`fetch(imageUrl)` → `createImageBitmap(blob)`
+     - 脚本文字：截断 30 字 + 省略号
+     - 水印固定 "MangaGrow"
+     - `canvas.toBlob('image/png')` 返回 Blob
+  2. DisplayPanel 导出 UI：
+     - 「导出」按钮改为下拉按钮
+     - 选项 1：「导出海报」→ 调用 posterGenerator → `saveAs(blob, '{title}_poster.png')`
+     - 选项 2：「导出 ZIP」→ 保持现有 ZIP 导出逻辑
+     - 导出时显示 loading 状态
+  3. 海报尺寸计算：
+     - 标题区：120px
+     - 每个分镜格：图片（保持原始比例）+ 脚本文字区（60px）
+     - 分镜间距：20px
+     - 水印区：60px
+     - 两侧边距：40px
+- **约束**：
+  - 必须遵守 C29（原生 Canvas，不引入 html2canvas）、C30（2 列 + 居中 + MangaGrow 水印）
+- **验收标准**：
+  - [ ] posterGenerator 正确生成 2 列网格海报
+  - [ ] 奇数分镜末行居中
+  - [ ] 海报包含标题 + 日期 + 分镜 + 脚本文字 + MangaGrow 水印
+  - [ ] 2-8 张分镜均排版正确
+  - [ ] 导出按钮为下拉形式（海报 / ZIP）
+  - [ ] 导出的 PNG 图片清晰度与原始分镜一致
+  - [ ] 文件名格式：`{title}_poster.png`
+  - [ ] 无 TypeScript 错误
+- **依赖**：无强依赖（需要 T-25 提供 storyTitle，但可先用 mock 标题开发）
+- **状态**：✅ 已完成
+
+---
+
+### [T-27] 历史记录侧边栏
+
+- **目的**：实现历史记录浏览组件，支持加载历史故事到右侧面板
+- **方案引用**：Architecture.md v1.4 → HistoryPanel 组件 / 历史记录浏览数据流
+- **新建文件**：
+  - `comic-growth-record/components/HistoryPanel.tsx`：历史记录侧边栏组件
+- **修改文件**：
+  - `comic-growth-record/App.tsx`：集成 HistoryPanel，新增 loadStory 逻辑
+- **实现要求**：
+  1. HistoryPanel 组件：
+     - 交互方式与 CharacterLibrary 完全一致（折叠侧边栏、关闭按钮 X、覆盖在输入区上方）
+     - `isOpen` 变为 true 时调用 `apiClient.getStories()` 获取列表
+     - 按 createdAt 倒序排列
+     - 每条卡片：标题 + 日期 + 缩略图 + 分镜数
+     - 点击卡片 → 调用 `onSelectStory(storyId)`
+     - `currentStoryId` 对应的卡片高亮
+     - 删除操作：确认弹窗 → `apiClient.deleteStory(id)` → 刷新列表
+     - 空状态：「还没有创作记录，开始你的第一个故事吧！」
+  2. App.tsx 集成：
+     - 新增 `isHistoryOpen` 状态
+     - `loadStory(storyId)` 函数：
+       - 调用 `apiClient.getStory(storyId)` 获取详情
+       - 设置 scenes（imageUrl = `/api/images/scenes/xxx.png`）
+       - 设置 storyTitle = story.title
+       - 设置 currentStoryId = storyId
+       - 关闭 HistoryPanel
+     - 历史面板和人物库面板互斥（同时只能打开一个）
+- **约束**：
+  - 必须遵守 C32（交互与 CharacterLibrary 一致）、C33（展示结构与生成结果一致）
+- **验收标准**：
+  - [ ] 侧边栏交互与 CharacterLibrary 一致（动画、关闭按钮、覆盖位置）
+  - [ ] 历史列表按时间倒序显示
+  - [ ] 每条记录显示标题 + 日期 + 缩略图 + 分镜数
+  - [ ] 点击记录在右侧面板加载故事（分镜展示结构一致）
+  - [ ] 当前查看的记录高亮
+  - [ ] 删除功能正常（确认弹窗 + 刷新列表）
+  - [ ] 空状态正确显示
+  - [ ] 历史面板和人物库面板互斥
+  - [ ] 无 TypeScript 错误
+- **依赖**：依赖 [T-25]（currentStoryId 和 saveStory 逻辑）
+- **状态**：✅ 已完成
+
+---
+
+### [T-28] 导航栏 + DisplayPanel UI 更新
+
+- **目的**：导航栏新增历史图标，DisplayPanel 新增顶部信息栏（标题 + 时间 + 保存状态）
+- **方案引用**：Architecture.md v1.4 → Product-Spec.md v1.4 → UI 布局
+- **修改文件**：
+  - `comic-growth-record/App.tsx`：导航栏新增历史记录图标按钮
+  - `comic-growth-record/components/DisplayPanel.tsx`：新增顶部信息栏
+  - `comic-growth-record/components/InputPanel.tsx`：标题改为可编辑（生成后 AI 标题替换）
+- **实现要求**：
+  1. 导航栏（App.tsx 左侧 64px 栏）：
+     - 中部图标新增「历史记录」（Clock 或 History 图标，lucide-react）
+     - 图标顺序：人物库 → 历史记录 → 新创作
+     - 点击历史记录图标 → 设置 `isHistoryOpen = true`
+  2. DisplayPanel 顶部信息栏：
+     - 生成完成后显示（scenes.length > 0 时）
+     - 左侧：故事标题（可点击编辑，编辑后触发 debounce 同步）
+     - 中间：创建日期（格式化显示）
+     - 右侧：保存状态指示（「已保存」/ 「保存中...」）
+  3. InputPanel 标题区：
+     - 默认显示「新的回忆」
+     - 生成完成后或加载历史后，由 App.tsx 传入 storyTitle
+     - 标题可点击编辑
+- **约束**：
+  - 历史图标样式与其他导航图标一致
+  - 信息栏不占用分镜展示空间（在网格上方，固定高度）
+- **验收标准**：
+  - [ ] 导航栏新增历史记录图标，样式一致
+  - [ ] 点击历史图标打开 HistoryPanel
+  - [ ] DisplayPanel 顶部显示标题 + 日期 + 保存状态
+  - [ ] 标题可点击编辑
+  - [ ] 保存状态指示正确（saving / saved）
+  - [ ] InputPanel 标题随 storyTitle 状态变化
+  - [ ] 无 TypeScript 错误
+- **依赖**：无强依赖（与 T-25, T-27 协作，但 UI 可先搭建）
+- **状态**：✅ 已完成
+
+---
+
+### [T-29] 集成验证 + 文档同步
+
+- **目的**：端到端验证 v1.4 所有新功能，同步约束文档和架构图
+- **方案引用**：Architecture.md v1.4 → 约束清单 C15 / C27-C33
+- **修改文件**：
+  - `.claude/rules/dev-constraints.md`：同步 Architecture.md v1.4 约束 C27-C33
+  - `architecture-diagram.html`：更新架构图（新增 posterGenerator、HistoryPanel、标题生成流程、自动保存流程）
+- **实现要求**：
+  1. 端到端测试：
+     - 生成漫画 → 标题自动生成 → 自动保存 → 验证数据库
+     - 编辑脚本 → 自动同步 → 验证数据库 updated_at 更新
+     - 修改标题 → 自动同步 → 验证数据库 title 更新
+     - 重绘图片 → 自动同步 → 验证数据库 scenes 更新
+     - 导出海报 → 验证 PNG（2 列网格、标题、水印）
+     - 导出 ZIP → 验证内容（图片 + 脚本文本）
+     - 打开历史侧边栏 → 查看列表 → 点击加载 → 右侧面板呈现
+     - 删除历史记录 → 确认列表更新
+     - 新建创作 → currentStoryId 重置 → 标题恢复「新的回忆」
+  2. dev-constraints.md 新增 C27-C33
+  3. architecture-diagram.html 更新
+  4. 修复截图中的已知 bug：`Cannot read properties of undefined (reading 'length')`
+- **验收标准**：
+  - [ ] 所有端到端测试通过
+  - [ ] dev-constraints.md 与 Architecture.md 约束清单一致（C01-C33）
+  - [ ] architecture-diagram.html 反映 v1.4 架构
+  - [ ] 已知 bug 修复
+  - [ ] `npm run dev` 正常启动，无错误
+  - [ ] TypeScript 编译无错误
+- **依赖**：依赖 [T-24], [T-25], [T-26], [T-27], [T-28]
+- **状态**：✅ 已完成
+
+---
+
 ## 变更记录
 
 | 日期 | 触发来源 | 变更内容 | 受影响任务 |
@@ -722,3 +960,4 @@ T-16 (后端基础设施)
 | 2026-02-13 | T-11~T-15 执行完成 | T-11~T-15 全部完成（性能优化 + 人物库优化） | T-11~T-15 |
 | 2026-02-13 | Architecture v1.3（后端迁移） | 新增 T-16~T-23（后端基础设施、AI 服务迁移、REST 路由、前端瘦化、集成验证） | T-16~T-23 |
 | 2026-02-14 | T-16~T-23 执行完成 | T-16~T-23 全部完成（后端迁移：Express + SQLite + 前端瘦化 + 集成验证） | T-16~T-23 |
+| 2026-02-14 | Architecture v1.4（功能增强） | 新增 T-24~T-29：DB 迁移+标题生成、自动保存+同步、网格海报导出、历史记录侧边栏、UI 更新、集成验证 | T-24~T-29 |

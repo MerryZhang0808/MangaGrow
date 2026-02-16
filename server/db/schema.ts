@@ -26,11 +26,13 @@ export function initDb(): void {
     CREATE TABLE IF NOT EXISTS stories (
       id TEXT PRIMARY KEY,
       user_id TEXT,
+      title TEXT,
       input_summary TEXT,
       style TEXT,
       aspect_ratio TEXT,
       story_outline TEXT,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS scenes (
@@ -43,6 +45,19 @@ export function initDb(): void {
       created_at INTEGER NOT NULL
     );
   `);
+
+  // Migration: add title and updated_at to existing stories table
+  const storyColumns = db.prepare("PRAGMA table_info(stories)").all() as any[];
+  const columnNames = storyColumns.map((c: any) => c.name);
+
+  if (!columnNames.includes('title')) {
+    db.exec('ALTER TABLE stories ADD COLUMN title TEXT');
+    console.log('[DB] Migration: added title column to stories');
+  }
+  if (!columnNames.includes('updated_at')) {
+    db.exec('ALTER TABLE stories ADD COLUMN updated_at INTEGER');
+    console.log('[DB] Migration: added updated_at column to stories');
+  }
 
   console.log('[DB] Tables initialized');
 }

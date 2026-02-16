@@ -94,6 +94,17 @@ export interface CharacterRef {
   referenceSheetUrl?: string;
 }
 
+export interface StorySummary {
+  id: string;
+  title: string | null;
+  inputSummary: string;
+  style: string;
+  createdAt: number;
+  updatedAt: number | null;
+  thumbnailUrl: string | null;
+  sceneCount: number;
+}
+
 export interface AppState {
   inputText: string;
   inputImages: string[]; // Base64 strings

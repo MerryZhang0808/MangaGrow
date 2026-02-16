@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { InputPanel } from './components/InputPanel';
 import { DisplayPanel } from './components/DisplayPanel';
 import { CharacterLibrary } from './components/CharacterLibrary';
+import { HistoryPanel } from './components/HistoryPanel';
 import { Button } from './components/Button';
 import { ComicStyle, AspectRatio, Scene, Character, KeyObject } from './types';
 import { analyzeImages } from './services/inputService';
-import { generateStory } from './services/storyService';
+import { generateStory, generateTitle } from './services/storyService';
 import { generateSceneImage } from './services/imageService';
 import { getCharacterReferences, getCharacters } from './services/characterService';
-import { BookOpen, User, Plus } from 'lucide-react';
+import { saveStory, updateStory, getStory } from './services/apiClient';
+import { BookOpen, User, Plus, Clock } from 'lucide-react';
 
 const App: React.FC = () => {
   // State: Inputs
@@ -26,8 +28,16 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStage, setGenerationStage] = useState("");
 
+  // State: Story persistence (C27, C28)
+  const [currentStoryId, setCurrentStoryId] = useState<string | null>(null);
+  const [storyTitle, setStoryTitle] = useState<string>('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [storyCreatedAt, setStoryCreatedAt] = useState<number | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // State: Sidebar
   const [isCharLibOpen, setIsCharLibOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [characters, setCharacters] = useState<Character[]>([]);
 
   // Initialize: load characters from backend API
@@ -35,6 +45,64 @@ const App: React.FC = () => {
     getCharacters()
       .then(chars => setCharacters(chars))
       .catch(e => console.error('[App] Failed to load characters:', e));
+  }, []);
+
+  // C28: Debounce sync — 1 second after last edit
+  const debouncedSync = useCallback((storyId: string, data: Record<string, any>) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSaveStatus('saving');
+    debounceRef.current = setTimeout(async () => {
+      try {
+        await updateStory(storyId, data);
+        setSaveStatus('saved');
+      } catch (e) {
+        console.error('[App] Sync failed:', e);
+        setSaveStatus('idle');
+      }
+    }, 1000);
+  }, []);
+
+  // Handle title change (editable title)
+  const handleTitleChange = useCallback((newTitle: string) => {
+    setStoryTitle(newTitle);
+    if (currentStoryId) {
+      debouncedSync(currentStoryId, { title: newTitle });
+    }
+  }, [currentStoryId, debouncedSync]);
+
+  // Handle scene edit or redraw — sync scenes to backend
+  const syncScenes = useCallback((updatedScenes: Scene[]) => {
+    if (!currentStoryId) return;
+    const scenesData = updatedScenes.map(s => ({
+      sceneNumber: s.sceneNumber,
+      script: s.script,
+      imagePath: s.imageUrl || null,
+      emotionalBeat: ''
+    }));
+    debouncedSync(currentStoryId, { scenes: scenesData });
+  }, [currentStoryId, debouncedSync]);
+
+  // Load a history story into the display
+  const loadStory = useCallback(async (storyId: string) => {
+    try {
+      const story = await getStory(storyId);
+      const loadedScenes: Scene[] = (story.scenes || []).map((s: any) => ({
+        id: s.id || Math.random().toString(36).substr(2, 9),
+        sceneNumber: s.sceneNumber,
+        script: s.script,
+        imageUrl: s.imageUrl || null,
+        isLoading: false
+      }));
+      setScenes(loadedScenes);
+      setStoryTitle(story.title || '');
+      setCurrentStoryId(storyId);
+      setStoryCreatedAt(story.createdAt);
+      setSaveStatus('saved');
+      setIsHistoryOpen(false);
+    } catch (e) {
+      console.error('[App] Failed to load story:', e);
+      alert('加载故事失败，请重试');
+    }
   }, []);
 
   // Main Generation Logic — uses storyService pipeline + imageService
@@ -169,6 +237,64 @@ const App: React.FC = () => {
         }
       }
 
+      // 4. Generate title (C31: failure fallback)
+      setGenerationStage("生成故事标题...");
+      const title = await generateTitle(inputText, imageAnalysis);
+      setStoryTitle(title);
+
+      // 5. Auto-save (C27: mandatory post-generation save)
+      setGenerationStage("保存故事...");
+      setSaveStatus('saving');
+      try {
+        // Collect final scene data from state
+        const finalScenes = initialScenes.map(s => {
+          // The scenes state may have been updated with imageUrls by now
+          return s;
+        });
+
+        const savedStory = await saveStory({
+          title,
+          inputSummary: inputText,
+          style,
+          aspectRatio: ratio,
+          storyOutline: storyResult.storyOutline || '',
+          scenes: finalScenes.map((s, i) => ({
+            sceneNumber: s.sceneNumber,
+            script: s.script,
+            emotionalBeat: scriptScenes[i]?.emotionalBeat || ''
+          }))
+        });
+
+        setCurrentStoryId(savedStory.id);
+        setStoryCreatedAt(savedStory.createdAt);
+        setSaveStatus('saved');
+
+        // Sync images (scenes may have gotten images after initial save)
+        // We'll do a delayed sync to capture any remaining images
+        setTimeout(async () => {
+          try {
+            // Re-read current scenes from React state via a closure-safe approach
+            setScenes(prev => {
+              const scenesWithImages = prev.map(s => ({
+                sceneNumber: s.sceneNumber,
+                script: s.script,
+                imagePath: s.imageUrl || null,
+                emotionalBeat: ''
+              }));
+              if (scenesWithImages.some(s => s.imagePath)) {
+                updateStory(savedStory.id, { scenes: scenesWithImages }).catch(e =>
+                  console.warn('[App] Image sync failed:', e)
+                );
+              }
+              return prev; // Don't modify state
+            });
+          } catch { /* ignore */ }
+        }, 2000);
+      } catch (e) {
+        console.error('[App] Auto-save failed:', e);
+        setSaveStatus('idle');
+      }
+
     } catch (error) {
       console.error("Workflow failed", error);
       const msg = error instanceof Error ? error.message : "Unknown error";
@@ -186,6 +312,10 @@ const App: React.FC = () => {
     setKeyObjects([]);
     setStoryCharacters([]);
     setIsGenerating(false);
+    setCurrentStoryId(null);
+    setStoryTitle('');
+    setSaveStatus('idle');
+    setStoryCreatedAt(null);
   };
 
   return (
@@ -198,11 +328,19 @@ const App: React.FC = () => {
 
         <div className="flex-1 flex flex-col gap-6 w-full items-center">
           <button
-            onClick={() => setIsCharLibOpen(true)}
-            className="p-3 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-all"
+            onClick={() => { setIsCharLibOpen(true); setIsHistoryOpen(false); }}
+            className={`p-3 rounded-xl transition-all ${isCharLibOpen ? 'text-primary-600 bg-primary-50' : 'text-gray-400 hover:text-primary-600 hover:bg-primary-50'}`}
             title="人物库"
           >
             <User size={24} />
+          </button>
+
+          <button
+            onClick={() => { setIsHistoryOpen(true); setIsCharLibOpen(false); }}
+            className={`p-3 rounded-xl transition-all ${isHistoryOpen ? 'text-primary-600 bg-primary-50' : 'text-gray-400 hover:text-primary-600 hover:bg-primary-50'}`}
+            title="历史记录"
+          >
+            <Clock size={24} />
           </button>
 
           <button
@@ -229,6 +367,14 @@ const App: React.FC = () => {
         onClose={() => setIsCharLibOpen(false)}
         characters={characters}
         setCharacters={setCharacters}
+      />
+
+      {/* Sidebar Overlay (History Panel) */}
+      <HistoryPanel
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        onSelectStory={loadStory}
+        currentStoryId={currentStoryId}
       />
 
       {/* 2. Middle Input Column */}
@@ -263,6 +409,11 @@ const App: React.FC = () => {
           style={style}
           ratio={ratio}
           onReset={resetApp}
+          storyTitle={storyTitle}
+          onTitleChange={handleTitleChange}
+          saveStatus={saveStatus}
+          storyCreatedAt={storyCreatedAt}
+          onScenesChange={syncScenes}
         />
       </div>
     </div>

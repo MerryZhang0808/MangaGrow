@@ -285,6 +285,57 @@ ${charSummary}
   return { scripts, passed: result.passed };
 }
 
+// === Title Generation (independent, outside 4-step pipeline) ===
+export async function generateTitle(
+  text: string,
+  imageAnalysis?: Array<{ index: number; description: string }>
+): Promise<string> {
+  console.log('[StoryPipeline] Generating title...');
+  const ai = getAiClient();
+
+  const imageDescriptions = (imageAnalysis || []).map(
+    a => `图${a.index + 1}: ${a.description}`
+  ).join('\n');
+
+  const prompt = `根据以下故事内容，生成一个简短温馨的标题。
+
+[故事内容]
+${text || '（无文字描述）'}
+
+[图片描述]
+${imageDescriptions || '（无图片）'}
+
+要求：
+- 标题长度 5-15 个字
+- 温馨、可爱的风格
+- 能概括故事核心内容
+- 只输出标题文字，不要引号、标点或其他内容`;
+
+  try {
+    const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+      model: TEXT_MODEL,
+      contents: prompt,
+      config: {
+        responseMimeType: 'text/plain',
+        safetySettings: SAFETY_SETTINGS
+      }
+    }));
+
+    const title = (response.text || '').trim();
+    if (title && title.length >= 2 && title.length <= 30) {
+      console.log(`[StoryPipeline] Title generated: ${title}`);
+      return title;
+    }
+    // Title too short/long, fallback
+    throw new Error('Title length out of range');
+  } catch (e: any) {
+    // C31: title failure fallback to input_summary first 15 chars
+    console.warn('[StoryPipeline] Title generation failed, using fallback:', e.message);
+    const fallback = (text || '未命名故事').slice(0, 15) + ((text || '').length > 15 ? '...' : '');
+    return fallback;
+  }
+}
+
 // === Main Entry ===
 export async function generateStory(input: StoryInput): Promise<StoryOutput> {
   console.log('[StoryPipeline] Starting 4-step pipeline...');
