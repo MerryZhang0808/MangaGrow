@@ -75,25 +75,34 @@ router.post('/generate-image', async (req: Request, res: Response) => {
     if (referenceCharIds && referenceCharIds.length > 0) {
       const db = getDb();
       for (const charId of referenceCharIds) {
-        const row = db.prepare('SELECT name, avatar_path, reference_sheet_path FROM characters WHERE id = ?').get(charId) as any;
+        const row = db.prepare('SELECT name, avatar_path, reference_sheet_path, original_photo_paths FROM characters WHERE id = ?').get(charId) as any;
         if (row && row.avatar_path) {
           try {
-            const avatar = readImageAsBase64(
-              (await import('../services/imageStorage.js')).getImageFullPath(row.avatar_path)
-            );
+            const { getImageFullPath } = await import('../services/imageStorage.js');
+            const avatar = readImageAsBase64(getImageFullPath(row.avatar_path));
             const ref: CharacterImageRef = {
               name: row.name,
               avatarData: avatar.data,
               avatarMimeType: avatar.mimeType
             };
+            // Load reference sheet if available
             if (row.reference_sheet_path) {
               try {
-                const sheet = readImageAsBase64(
-                  (await import('../services/imageStorage.js')).getImageFullPath(row.reference_sheet_path)
-                );
+                const sheet = readImageAsBase64(getImageFullPath(row.reference_sheet_path));
                 ref.referenceSheetData = sheet.data;
                 ref.referenceSheetMimeType = sheet.mimeType;
               } catch { /* reference sheet not available */ }
+            }
+            // Load original photo (first one) for real feature reference
+            if (row.original_photo_paths) {
+              try {
+                const photoPaths: string[] = JSON.parse(row.original_photo_paths);
+                if (photoPaths.length > 0) {
+                  const photo = readImageAsBase64(getImageFullPath(photoPaths[0]));
+                  ref.originalPhotoData = photo.data;
+                  ref.originalPhotoMimeType = photo.mimeType;
+                }
+              } catch { /* original photo not available */ }
             }
             referenceChars.push(ref);
           } catch (err: any) {

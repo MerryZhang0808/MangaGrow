@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Scene, ComicStyle, AspectRatio, KeyObject, Character } from '../types';
 import { Button } from './Button';
-import { RefreshCw, Download, Edit2, ChevronDown, Check, Loader2 } from 'lucide-react';
+import { RefreshCw, Download, Edit2, ChevronDown, Check, Loader2, ImagePlus } from 'lucide-react';
 import JSZip from 'jszip';
 import saveAs from 'file-saver';
 import { generateSceneImage } from '../services/imageService';
@@ -38,6 +38,76 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState('');
+  const [isContinueGenerating, setIsContinueGenerating] = useState(false);
+
+  // Check if there are pending scenes (no image, not loading, no error)
+  const pendingScenes = scenes.filter(s => !s.imageUrl && !s.isLoading && !s.error);
+  const hasPendingScenes = pendingScenes.length > 0;
+
+  // Continue generating remaining scenes
+  const handleContinueGenerate = async () => {
+    if (isContinueGenerating) return;
+    setIsContinueGenerating(true);
+
+    try {
+      const characterContext = storyCharacters.map(c =>
+        `[人物: ${c.name}]\n外貌特征: ${c.description}`
+      ).join('\n\n');
+
+      const objectContext = keyObjects.map(o =>
+        `[物品: ${o.name}] ${o.description}`
+      ).join('\n');
+
+      // Mark pending scenes as loading
+      setScenes(prev => prev.map(s =>
+        (!s.imageUrl && !s.isLoading && !s.error) ? { ...s, isLoading: true } : s
+      ));
+
+      // Find the last scene with an image for continuity reference
+      const scenesWithImages = scenes.filter(s => s.imageUrl);
+      let previousGeneratedImage = scenesWithImages.length > 0
+        ? scenesWithImages[scenesWithImages.length - 1].imageUrl || null
+        : null;
+
+      for (const scene of pendingScenes) {
+        const sortedRefChars = getCharacterReferences(libraryCharacters, scene.script);
+        const referenceCharIds = sortedRefChars
+          .map(r => libraryCharacters.find(c => c.name === r.name)?.id)
+          .filter(Boolean) as string[];
+
+        const continuityRef = previousGeneratedImage ? [previousGeneratedImage] : [];
+
+        try {
+          const newImageUrl = await generateSceneImage({
+            script: scene.script,
+            style,
+            ratio,
+            characterContext,
+            objectContext,
+            referenceCharIds,
+            sceneReferenceImages: continuityRef,
+            isUserPhoto: false
+          });
+
+          setScenes(prev => {
+            const updated = prev.map(s =>
+              s.id === scene.id ? { ...s, isLoading: false, imageUrl: newImageUrl } : s
+            );
+            onScenesChange?.(updated);
+            return updated;
+          });
+          if (newImageUrl) previousGeneratedImage = newImageUrl;
+        } catch (e) {
+          console.error(`Failed to generate image for scene ${scene.sceneNumber}`, e);
+          setScenes(prev => prev.map(s =>
+            s.id === scene.id ? { ...s, isLoading: false, error: "Failed to generate" } : s
+          ));
+        }
+      }
+    } finally {
+      setIsContinueGenerating(false);
+    }
+  };
 
   const handleEditStart = (scene: Scene) => {
     setEditingId(scene.id);
@@ -229,8 +299,8 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
     <div className="h-full overflow-y-auto custom-scrollbar">
       {/* Top Info Bar — title + date + save status */}
       {(storyTitle || storyCreatedAt) && (
-        <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-gray-100 px-8 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4 min-w-0">
+        <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-sm border-b border-gray-100 px-8 py-5">
+          <div className="flex flex-col items-center">
             {isEditingTitle ? (
               <input
                 type="text"
@@ -238,35 +308,35 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
                 onChange={(e) => setEditTitleValue(e.target.value)}
                 onBlur={handleTitleSave}
                 onKeyDown={(e) => e.key === 'Enter' && handleTitleSave()}
-                className="text-xl font-bold text-gray-900 bg-transparent border-b-2 border-primary-500 outline-none px-0 py-1 min-w-[200px]"
+                className="text-2xl font-bold text-gray-900 bg-transparent border-b-2 border-primary-500 outline-none px-0 py-1 min-w-[200px] text-center"
                 autoFocus
               />
             ) : (
               <h2
                 onClick={handleTitleClick}
-                className="text-xl font-bold text-gray-900 truncate cursor-pointer hover:text-primary-600 transition-colors"
+                className="text-2xl font-bold text-gray-900 cursor-pointer hover:text-primary-600 transition-colors"
                 title="点击编辑标题"
               >
                 {storyTitle || '未命名故事'}
               </h2>
             )}
-            {storyCreatedAt && (
-              <span className="text-sm text-gray-400 flex-shrink-0">
-                {formatDate(storyCreatedAt)}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 text-sm flex-shrink-0">
-            {saveStatus === 'saving' && (
-              <span className="flex items-center gap-1 text-gray-400">
-                <Loader2 size={14} className="animate-spin" /> 保存中...
-              </span>
-            )}
-            {saveStatus === 'saved' && (
-              <span className="flex items-center gap-1 text-green-500">
-                <Check size={14} /> 已保存
-              </span>
-            )}
+            <div className="flex items-center gap-3 mt-1">
+              {storyCreatedAt && (
+                <span className="text-sm text-gray-400">
+                  {formatDate(storyCreatedAt)}
+                </span>
+              )}
+              {saveStatus === 'saving' && (
+                <span className="flex items-center gap-1 text-sm text-gray-400">
+                  <Loader2 size={14} className="animate-spin" /> 保存中...
+                </span>
+              )}
+              {saveStatus === 'saved' && (
+                <span className="flex items-center gap-1 text-sm text-green-500">
+                  <Check size={14} /> 已保存
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -291,8 +361,13 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
                    </div>
                 ) : scene.imageUrl ? (
                   <img src={scene.imageUrl} alt={`Scene ${index + 1}`} className="w-full h-full object-cover" />
-                ) : (
+                ) : scene.error ? (
                   <span className="text-gray-400 text-xs uppercase tracking-widest">Error</span>
+                ) : (
+                  <div className="flex flex-col items-center text-gray-300">
+                    <ImagePlus size={32} className="mb-2" />
+                    <span className="text-xs font-medium text-gray-400">待生成</span>
+                  </div>
                 )}
 
                 {/* Action Overlay */}
@@ -345,6 +420,20 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
       {/* Floating Action Bar */}
       {scenes.length > 0 && (
         <div className="fixed bottom-6 right-6 flex gap-3 z-50">
+           {hasPendingScenes && (
+             <Button
+               onClick={handleContinueGenerate}
+               disabled={isContinueGenerating}
+               className="shadow-xl border-2 border-white bg-primary-600 hover:bg-primary-700 text-white"
+             >
+               {isContinueGenerating ? (
+                 <Loader2 size={18} className="mr-2 animate-spin" />
+               ) : (
+                 <ImagePlus size={18} className="mr-2" />
+               )}
+               继续生成 ({pendingScenes.length})
+             </Button>
+           )}
            <Button variant="secondary" onClick={() => scenes.forEach(s => handleRegenerateScene(s.id))} className="shadow-xl border-2 border-white">
              <RefreshCw size={18} className="mr-2" /> Redraw All
            </Button>

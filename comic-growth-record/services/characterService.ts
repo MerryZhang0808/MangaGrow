@@ -70,25 +70,24 @@ export function updateCharacterDescription(
 }
 
 // Filter and sort character references relevant to a scene script
+// Returns characters mentioned in the script first, then others as fallback
 export function getCharacterReferences(
   characters: Character[],
   sceneScript: string
 ): CharacterRef[] {
   const scriptLower = sceneScript.toLowerCase();
 
-  return characters
-    .filter(c => c.avatarUrl)
-    .sort((a, b) => {
-      const aIn = scriptLower.includes(a.name.toLowerCase());
-      const bIn = scriptLower.includes(b.name.toLowerCase());
-      if (aIn && !bIn) return -1;
-      if (!aIn && bIn) return 1;
-      return 0;
-    })
-    .map(c => ({
-      name: c.name,
-      description: c.description,
-      avatarUrl: c.avatarUrl,
-      referenceSheetUrl: c.referenceSheetUrl
-    }));
+  const withAvatar = characters.filter(c => c.avatarUrl);
+
+  // Split into: mentioned in script vs not mentioned
+  const mentioned = withAvatar.filter(c => scriptLower.includes(c.name.toLowerCase()));
+  const notMentioned = withAvatar.filter(c => !scriptLower.includes(c.name.toLowerCase()));
+
+  // Mentioned characters first (they are the priority), then others as secondary references
+  return [...mentioned, ...notMentioned].map(c => ({
+    name: c.name,
+    description: c.description,
+    avatarUrl: c.avatarUrl,
+    referenceSheetUrl: c.referenceSheetUrl
+  }));
 }

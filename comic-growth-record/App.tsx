@@ -163,12 +163,14 @@ const App: React.FC = () => {
       setKeyObjects(generatedKeyObjects);
       setStoryCharacters(mergedCharacters);
 
-      // Create Scene objects (loading state)
-      const initialScenes: Scene[] = scriptScenes.map((s) => ({
+      // Create Scene objects
+      // First batch (up to 4) starts loading, rest are pending (no image yet)
+      const AUTO_GENERATE_COUNT = 6;
+      const initialScenes: Scene[] = scriptScenes.map((s, i) => ({
         id: Math.random().toString(36).substr(2, 9),
         sceneNumber: s.sceneNumber,
         script: s.description,
-        isLoading: true
+        isLoading: i < AUTO_GENERATE_COUNT
       }));
 
       setScenes(initialScenes);
@@ -183,8 +185,9 @@ const App: React.FC = () => {
         `[物品: ${o.name}] ${o.description}`
       ).join('\n');
 
-      // 3. Generate Images via imageService (→ backend, conditional parallel)
+      // 3. Generate Images — only first batch auto-generated
       const hasUserPhotos = inputImages.length > 0 && inputImages.length >= initialScenes.length;
+      const firstBatch = initialScenes.slice(0, AUTO_GENERATE_COUNT);
 
       // Helper: build params and generate one scene image
       const generateOne = async (scene: Scene, sceneIndex: number, sceneRefImages: string[], isPhoto: boolean) => {
@@ -219,17 +222,17 @@ const App: React.FC = () => {
 
       if (hasUserPhotos) {
         // Parallel: each scene uses its own user photo as reference
-        setGenerationStage(`并行绘制 ${initialScenes.length} 幅画面...`);
+        setGenerationStage(`并行绘制 ${firstBatch.length} 幅画面...`);
         await Promise.all(
-          initialScenes.map((scene, i) =>
+          firstBatch.map((scene, i) =>
             generateOne(scene, i, [inputImages[i]], true)
           )
         );
       } else {
         // Sequential: use previous generated image URL for environment consistency
         let previousGeneratedImage: string | null = null;
-        for (let i = 0; i < initialScenes.length; i++) {
-          const scene = initialScenes[i];
+        for (let i = 0; i < firstBatch.length; i++) {
+          const scene = firstBatch[i];
           const continuityRef = (i > 0 && previousGeneratedImage) ? [previousGeneratedImage] : [];
           setGenerationStage(`绘制第 ${i + 1}/${initialScenes.length} 幅画面...`);
           const result = await generateOne(scene, i, continuityRef, false);

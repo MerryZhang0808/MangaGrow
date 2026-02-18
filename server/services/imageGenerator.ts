@@ -10,6 +10,8 @@ export interface CharacterImageRef {
   avatarMimeType: string;
   referenceSheetData?: string;
   referenceSheetMimeType?: string;
+  originalPhotoData?: string;
+  originalPhotoMimeType?: string;
 }
 
 export interface SceneGenerationParams {
@@ -34,18 +36,26 @@ export async function generateSceneImage(params: SceneGenerationParams): Promise
   const ai = getAiClient();
   const stylePrompt = getStylePrompt(params.style as any);
 
+  // Build character reference names for prompt emphasis
+  const refCharNames = params.referenceChars.map(c => c.name);
+  const hasCharRefs = refCharNames.length > 0;
+
   // Prompt built in 6-layer priority order (Architecture.md)
   const basePromptText = `
     任务：绘制一格连贯的漫画分镜。
 
     [1. 严格一致性规则 - CRITICAL]
     ⚠️ 以下规则是**强制性的**，违反会导致生成失败：
-    - 人物的发型、发色、发长必须与定义**完全一致**，禁止改变
-    - 服装必须使用定义中**明确指定的颜色和款式**，禁止自由发挥
-    - 面部特征（眼睛、眉毛、脸型）必须与定义一致
+    ${hasCharRefs ? `⚠️⚠️⚠️ 最高优先级：上方提供的角色形象设定图是**唯一权威参考**。
+    当画面描述中的文字与参考图冲突时，**必须以参考图为准**。
+    必须严格参考设定图的人物（${refCharNames.join('、')}）：面部轮廓、发型发色、服装颜色款式、配饰。
+    ` : ''}
+    - 人物的发型、发色、发长必须与参考图**完全一致**，禁止改变
+    - 服装必须使用参考图中**实际穿着的颜色和款式**，禁止自由发挥
+    - 面部特征（眼睛、眉毛、脸型）必须与参考图一致
     - 如有眼镜、发卡等配饰，必须始终存在
     - 物品外观在不同分镜中必须保持相同
-    ⚠️ 优先级：一致性 > 美观度 > 创意性
+    ⚠️ 优先级：参考图一致性 > 文字描述 > 美观度 > 创意性
 
     [2. 人物定义]
     ${params.characterContext || '无特定人物定义。'}
@@ -62,6 +72,7 @@ export async function generateSceneImage(params: SceneGenerationParams): Promise
     [6. 质量要求]
     High quality illustration, detailed, professional artwork.
     氛围：温馨、可爱、治愈。
+    Only generate a single coherent image. No multi-panel, no split screen, no comic strip layout.
     No text, no watermark, no distortion, no extra fingers.
   `;
 
@@ -74,8 +85,8 @@ export async function generateSceneImage(params: SceneGenerationParams): Promise
     };
 
     if (hasVisuals) {
-      let visualPrompt = '\n[视觉参考信息]\n';
-      let imageIndex = 1;
+      // Strategy: pair each reference image with its label text immediately after,
+      // so the model can directly associate each image with its character/purpose.
 
       // 1. Scene References (user photo or previous scene for continuity)
       if (params.sceneReferenceImages.length > 0) {
@@ -83,35 +94,33 @@ export async function generateSceneImage(params: SceneGenerationParams): Promise
         parts.push({ inlineData: { mimeType: sceneImg.mimeType, data: sceneImg.data } });
 
         if (!params.isUserPhoto) {
-          visualPrompt += `参考图 ${imageIndex} 是**上一个分镜生成的画面**。\n`;
-          visualPrompt += `⚠️ **连续性要求**：人物的发型、服装、面部特征必须与参考图完全一致。\n`;
-          visualPrompt += `只改变：人物的动作、姿态、表情和场景背景。\n\n`;
+          parts.push({ text: `[上一个分镜画面] ⚠️ 连续性要求：人物的发型、服装、面部特征必须与此图完全一致。只改变：动作、姿态、表情和场景背景。` });
         } else {
-          visualPrompt += `参考图 ${imageIndex} 是用户上传的**参考照片**。\n`;
-          visualPrompt += `请严格参考该图的构图、视角、背景环境、人物姿态，转绘为漫画风格。\n`;
+          parts.push({ text: `[用户参考照片] 请严格参考此图的构图、视角、背景环境、人物姿态，转绘为漫画风格。` });
         }
-        imageIndex++;
       }
 
-      // 2. Character References (avatar + reference sheet if available)
-      const maxChars = params.sceneReferenceImages.length > 0 ? 2 : 3;
-      const activeRefs = params.referenceChars.slice(0, maxChars);
+      // 2. Character References — original photo first (real features), then avatar (style ref)
+      for (const char of params.referenceChars) {
+        // Original photo — the most accurate feature reference
+        if (char.originalPhotoData && char.originalPhotoMimeType) {
+          parts.push({ inlineData: { mimeType: char.originalPhotoMimeType, data: char.originalPhotoData } });
+          parts.push({ text: `[人物 "${char.name}" 的真实照片] ⚠️ 这是 ${char.name} 的真实外貌。必须严格参考此照片中的面部轮廓、发型发色、肤色、五官比例。这是人物特征的最高权威参考。` });
+        }
 
-      for (const char of activeRefs) {
-        // Avatar
+        // Avatar — style reference
         parts.push({ inlineData: { mimeType: char.avatarMimeType, data: char.avatarData } });
-        visualPrompt += `参考图 ${imageIndex} 是人物 "${char.name}" 的形象设定。请绘制该人物的面部、发型和服装特征。\n`;
-        imageIndex++;
+        parts.push({ text: `[人物 "${char.name}" 的卡通形象] 这是 ${char.name} 的漫画风格参考。绘制时结合真实照片的面部特征和此卡通形象的服装配色。` });
 
-        // Reference sheet (if available)
+        // Reference sheet (if available) — paired with label
         if (char.referenceSheetData && char.referenceSheetMimeType) {
           parts.push({ inlineData: { mimeType: char.referenceSheetMimeType, data: char.referenceSheetData } });
-          visualPrompt += `参考图 ${imageIndex} 是人物 "${char.name}" 的多角度参考表。\n`;
-          imageIndex++;
+          parts.push({ text: `[人物 "${char.name}" 的多角度参考表] 用于确认该人物不同角度下的外观。` });
         }
       }
 
-      parts.push({ text: visualPrompt + basePromptText });
+      // 3. Main prompt text (character definitions + scene description + style + quality)
+      parts.push({ text: basePromptText });
     } else {
       parts.push({ text: basePromptText });
     }
@@ -140,7 +149,8 @@ export async function generateSceneImage(params: SceneGenerationParams): Promise
 
   try {
     if (hasAnyRefs) {
-      console.log(`[ImageGenerator] Generating with visual refs (Scene: ${params.sceneReferenceImages.length}, Chars: ${params.referenceChars.length})`);
+      const charNames = params.referenceChars.map(c => c.name).join(', ');
+      console.log(`[ImageGenerator] Generating with visual refs (Scene: ${params.sceneReferenceImages.length}, Chars: ${params.referenceChars.length} [${charNames}])`);
       return await executeGeneration(true);
     } else {
       console.log('[ImageGenerator] Generating text-only');

@@ -37,6 +37,32 @@ function parseJsonResponse(text: string | undefined): any {
   return JSON.parse(clean);
 }
 
+// Wrapper: call AI and parse JSON, retry up to maxRetries on empty/invalid response
+async function callAiWithJsonRetry(
+  ai: any,
+  model: string,
+  contents: any,
+  config: any,
+  label: string,
+  maxRetries = 4
+): Promise<any> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+      model, contents, config
+    }));
+    try {
+      return parseJsonResponse(response.text);
+    } catch (e: any) {
+      console.warn(`[StoryPipeline] ${label} attempt ${attempt + 1}/${maxRetries + 1}: ${e.message}`);
+      if (attempt === maxRetries) throw e;
+      // Exponential backoff: 2s, 4s, 8s, 16s
+      const delay = 2000 * Math.pow(2, attempt);
+      console.log(`[StoryPipeline] ${label} retrying in ${delay / 1000}s...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
+
 // === Step 1: Story Outline Generation ===
 async function generateOutline(input: StoryInput): Promise<StoryOutline> {
   console.log('[StoryPipeline] Step 1: Story Outline Generation');
@@ -54,11 +80,14 @@ async function generateOutline(input: StoryInput): Promise<StoryOutline> {
 
   const sceneCountRule = input.imageCount > 0
     ? `必须严格生成 ${input.imageCount} 个分镜（与用户上传的图片 1:1 对应）。`
-    : `生成 2-4 个分镜。`;
+    : `根据故事内容的丰富程度自由决定分镜数量（4-8个），确保叙事完整、节奏合理，不要为了压缩而省略重要情节。`;
 
   const characterNameList = (input.characters || []).map(c => c.name).join('、');
   const characterNameRule = (input.characters || []).length > 0
-    ? `\n⚠️ **人物名字强制规则**：如果故事涉及人物库中的角色（${characterNameList}），在分镜描述中必须使用他们的**精确名字**，不允许用"男孩"、"女孩"、"孩子"等泛指。\n`
+    ? `\n⚠️ **人物强制规则（最高优先级）**：
+1. 人物库中的所有角色（${characterNameList}）必须全部出现在故事中，不允许遗漏任何一个。
+2. 每个分镜描述中出现的人物必须使用**精确名字**，不允许用"男孩"、"女孩"、"孩子"、"爸爸"、"妈妈"等泛指替代。
+3. 即使用户描述中只提到部分人物，也必须合理安排其他人物库角色参与故事。\n`
     : '';
 
   const prompt = `根据以下用户输入，分析核心事件并生成漫画故事大纲。
@@ -74,11 +103,12 @@ ${charInfo || '无'}
 
 [风格]
 ${styleDesc}
-
+${characterNameRule}
 [任务]
 1. 先从输入中提取：涉及哪些人物、核心事件是什么、主要情感基调、关键细节
-2. 基于提取的信息，生成漫画故事大纲
-${characterNameRule}
+2. 确认人物库中的所有角色都已被安排到故事中
+3. 基于提取的信息，生成漫画故事大纲
+
 [规则]
 ${sceneCountRule}
 - 必须有起承转合结构
@@ -94,17 +124,11 @@ ${sceneCountRule}
   "arc": "情感弧线描述"
 }`;
 
-  const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-    model: TEXT_MODEL,
-    contents: prompt,
-    config: {
-      systemInstruction: STORY_SYSTEM_PROMPT,
-      responseMimeType: 'application/json',
-      safetySettings: SAFETY_SETTINGS
-    }
-  }));
-
-  return parseJsonResponse(response.text);
+  return callAiWithJsonRetry(ai, TEXT_MODEL, prompt, {
+    systemInstruction: STORY_SYSTEM_PROMPT,
+    responseMimeType: 'application/json',
+    safetySettings: SAFETY_SETTINGS
+  }, 'Step1-Outline');
 }
 
 // === Step 2: Outline Quality Review (no retry, degrade) ===
@@ -137,16 +161,10 @@ ${outline.arc}
   "suggestions": ["修改建议1"]
 }`;
 
-  const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-    model: TEXT_MODEL,
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      safetySettings: SAFETY_SETTINGS
-    }
-  }));
-
-  return parseJsonResponse(response.text);
+  return callAiWithJsonRetry(ai, TEXT_MODEL, prompt, {
+    responseMimeType: 'application/json',
+    safetySettings: SAFETY_SETTINGS
+  }, 'Step2-Review');
 }
 
 // === Step 3: Script Detailing ===
@@ -174,7 +192,10 @@ async function detailScripts(
 
   const characterNameList = (input.characters || []).map(c => c.name).join('、');
   const characterNameRule = (input.characters || []).length > 0
-    ? `\n⚠️ **人物名字强制规则**：如果场景涉及人物库中的角色（${characterNameList}），description 中必须使用他们的**精确名字**并包含完整视觉特征。\n`
+    ? `\n⚠️ **人物强制规则（最高优先级）**：
+1. 人物库中的所有角色（${characterNameList}）必须全部出现在故事的分镜中，不允许遗漏。
+2. description 中出现的人物必须使用**精确名字**并包含完整视觉特征。
+3. 每个角色至少出现在 1 个分镜中。\n`
     : '';
 
   const prompt = `根据故事大纲，细化每个分镜的详细脚本。
@@ -207,17 +228,11 @@ ${issuesBlock}${characterNameRule}
   ]
 }`;
 
-  const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-    model: TEXT_MODEL,
-    contents: prompt,
-    config: {
-      systemInstruction: STORY_SYSTEM_PROMPT,
-      responseMimeType: 'application/json',
-      safetySettings: SAFETY_SETTINGS
-    }
-  }));
-
-  return parseJsonResponse(response.text);
+  return callAiWithJsonRetry(ai, TEXT_MODEL, prompt, {
+    systemInstruction: STORY_SYSTEM_PROMPT,
+    responseMimeType: 'application/json',
+    safetySettings: SAFETY_SETTINGS
+  }, 'Step3-Detail');
 }
 
 // === Step 4: Consistency Check ===
@@ -259,16 +274,10 @@ ${charSummary}
   ]
 }`;
 
-  const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
-    model: TEXT_MODEL,
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      safetySettings: SAFETY_SETTINGS
-    }
-  }));
-
-  const result: ConsistencyResult = parseJsonResponse(response.text);
+  const result: ConsistencyResult = await callAiWithJsonRetry(ai, TEXT_MODEL, prompt, {
+    responseMimeType: 'application/json',
+    safetySettings: SAFETY_SETTINGS
+  }, 'Step4-Consistency');
 
   if (!result.passed && result.fixes && result.fixes.length > 0) {
     console.log(`[StoryPipeline] Consistency fixes applied: ${result.fixes.length}`);
