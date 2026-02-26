@@ -1,0 +1,7 @@
+{
+  "name": "漫画成长记录 (Comic Growth Record)",
+  "description": "Transform your child's growth moments into heartwarming comic strips using AI.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

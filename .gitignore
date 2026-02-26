@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+comic-growth-record/node_modules/
+server/node_modules/
+
+# Build output
+comic-growth-record/dist/
+
+# Environment variables (contains API keys)
+.env
+.env.local
+.env.*.local
+
+# Database
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+
+# Generated images (large binary files)
+server/data/images/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/

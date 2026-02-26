@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MangaGrow Architecture Diagram</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f8f9fa; color: #1a1a2e; padding: 40px 20px;
+  }
+  h1 { text-align: center; font-size: 28px; margin-bottom: 8px; color: #1a1a2e; }
+  .subtitle { text-align: center; color: #666; font-size: 14px; margin-bottom: 40px; }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  /* Section */
+  .section { margin-bottom: 48px; }
+  .section-title {
+    font-size: 18px; font-weight: 700; color: #1a1a2e;
+    margin-bottom: 20px; padding-left: 12px;
+    border-left: 4px solid #6366f1;
+  }
+
+  /* Layer styles */
+  .layer { border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .layer-label {
+    font-size: 13px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 12px; opacity: 0.7;
+  }
+  .module-row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .mod {
+    background: rgba(255,255,255,0.85); border-radius: 8px;
+    padding: 10px 16px; font-size: 13px; font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 140px;
+  }
+  .mod .file { font-size: 11px; font-weight: 400; color: #666; font-family: monospace; }
+  .mod.core { border-left: 3px solid #ef4444; }
+
+  /* Frontend layer */
+  .frontend-ui {
+    background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+    border: 2px solid #a78bfa;
+  }
+  .frontend-ui .layer-label { color: #6d28d9; }
+  .frontend-svc {
+    background: linear-gradient(135deg, #e0f2fe, #bae6fd);
+    border: 2px solid #38bdf8;
+  }
+  .frontend-svc .layer-label { color: #0369a1; }
+
+  /* Backend layer */
+  .backend-routes {
+    background: linear-gradient(135deg, #fce7f3, #fbcfe8);
+    border: 2px solid #ec4899;
+  }
+  .backend-routes .layer-label { color: #be185d; }
+  .backend-svc {
+    background: linear-gradient(135deg, #fff7ed, #fed7aa);
+    border: 2px solid #f97316;
+  }
+  .backend-svc .layer-label { color: #c2410c; }
+
+  /* Data layer */
+  .data-layer {
+    background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+    border: 2px solid #34d399;
+  }
+  .data-layer .layer-label { color: #065f46; }
+
+  /* Util layer */
+  .util-layer {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    border: 2px solid #fbbf24;
+  }
+  .util-layer .layer-label { color: #92400e; }
+
+  /* Separator */
+  .arch-separator {
+    text-align: center; padding: 12px 0; font-size: 13px;
+    color: #94a3b8; font-weight: 600; letter-spacing: 2px;
+    position: relative;
+  }
+  .arch-separator::before, .arch-separator::after {
+    content: ''; position: absolute; top: 50%;
+    width: 35%; height: 2px; background: #e5e7eb;
+  }
+  .arch-separator::before { left: 0; }
+  .arch-separator::after { right: 0; }
+
+  /* Pipeline */
+  .pipeline { display: flex; align-items: center; gap: 0; overflow-x: auto; padding: 10px 0; }
+  .step {
+    flex-shrink: 0; width: 160px; border-radius: 12px; padding: 16px;
+    text-align: center; position: relative;
+  }
+  .step-num { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .step-name { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  .step-desc { font-size: 11px; color: #555; line-height: 1.4; }
+  .step.normal { background: #e0f2fe; border: 2px solid #38bdf8; }
+  .step.normal .step-num { color: #0369a1; }
+  .step.gate { background: #fef3c7; border: 2px solid #f59e0b; }
+  .step.gate .step-num { color: #92400e; }
+  .arrow { flex-shrink: 0; width: 36px; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #94a3b8; }
+  .arrow-retry {
+    position: absolute; top: -28px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; color: #dc2626; font-weight: 600;
+    background: #fee2e2; padding: 2px 8px; border-radius: 4px; white-space: nowrap;
+  }
+
+  /* Flow box */
+  .flow-box {
+    background: white; border-radius: 12px; padding: 24px;
+    border: 1px solid #e5e7eb; box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  }
+  .flow-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .flow-row:last-child { margin-bottom: 0; }
+  .flow-item { background: #f1f5f9; border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 600; color: #334155; }
+  .flow-item.input { background: #ede9fe; color: #6d28d9; }
+  .flow-item.service { background: #e0f2fe; color: #0369a1; }
+  .flow-item.backend { background: #fff7ed; color: #c2410c; }
+  .flow-item.output { background: #d1fae5; color: #065f46; }
+  .flow-item.fallback { background: #fee2e2; color: #dc2626; border: 1px dashed #dc2626; }
+  .flow-arrow { color: #94a3b8; font-size: 16px; }
+
+  /* Resolution */
+  .res-compare { display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; }
+  .res-card {
+    background: white; border-radius: 12px; padding: 24px 32px;
+    border: 1px solid #e5e7eb; text-align: center; min-width: 200px;
+  }
+  .res-card .label { font-size: 13px; color: #666; margin-bottom: 8px; }
+  .res-card .value { font-size: 36px; font-weight: 800; }
+  .res-card .detail { font-size: 11px; color: #999; margin-top: 4px; }
+  .res-card.panel .value { color: #3b82f6; }
+  .res-card.avatar .value { color: #8b5cf6; }
+
+  /* Constraints */
+  .constraint-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .constraint {
+    background: white; border-radius: 8px; padding: 12px 16px;
+    border: 1px solid #e5e7eb; font-size: 12px; line-height: 1.5;
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .constraint-id {
+    flex-shrink: 0; background: #1a1a2e; color: white;
+    font-size: 10px; font-weight: 700; padding: 2px 8px;
+    border-radius: 4px; font-family: monospace;
+  }
+  .constraint.new { background: #dcfce7; border-left: 3px solid #22c55e; }
+  .constraint.new .constraint-id { background: #22c55e; }
+
+  /* Legend */
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 24px; font-size: 12px; color: #666; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+  .legend-dot.fe-ui { background: #a78bfa; }
+  .legend-dot.fe-svc { background: #38bdf8; }
+  .legend-dot.be-route { background: #ec4899; }
+  .legend-dot.be-svc { background: #f97316; }
+  .legend-dot.data { background: #34d399; }
+  .legend-dot.util { background: #fbbf24; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>MangaGrow Architecture</h1>
+  <p class="subtitle">Architecture.md v1.6 | 2026-02-24 | React + Vite + Express + SQLite + Gemini API</p>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot fe-ui"></div> Frontend UI</div>
+    <div class="legend-item"><div class="legend-dot fe-svc"></div> Frontend Services (thin)</div>
+    <div class="legend-item"><div class="legend-dot be-route"></div> Backend Routes</div>
+    <div class="legend-item"><div class="legend-dot be-svc"></div> Backend Services (full logic)</div>
+    <div class="legend-item"><div class="legend-dot data"></div> Data Layer</div>
+    <div class="legend-item"><div class="legend-dot util"></div> Utils</div>
+  </div>
+
+  <!-- Section 1: Module Overview -->
+  <div class="section">
+    <div class="section-title">Module Overview - Frontend / Backend / Data</div>
+
+    <div style="display: flex; flex-direction: column; gap: 0;">
+      <!-- Frontend UI Layer -->
+      <div class="layer frontend-ui">
+        <div class="layer-label">Frontend UI (components/)</div>
+        <div class="module-row">
+          <div class="mod">App.tsx<span class="file">dispatch center</span></div>
+          <div class="mod">InputPanel<span class="file">text / voice / photo · auto-match chars</span></div>
+          <div class="mod">DisplayPanel<span class="file">scene cards (caption) / script popup / export</span></div>
+          <div class="mod">CharacterLibrary<span class="file">CRUD + detail · initialCharacterId</span></div>
+          <div class="mod">HistoryPanel<span class="file">history list + load story · v1.4</span></div>
+        </div>
+      </div>
+
+      <!-- Frontend Services Layer -->
+      <div class="layer frontend-svc">
+        <div class="layer-label">Frontend Services (services/) &mdash; thin wrappers calling backend API</div>
+        <div class="module-row">
+          <div class="mod core">apiClient<span class="file">HTTP client for /api/*</span></div>
+          <div class="mod">storyService<span class="file">POST /api/ai/generate-story</span></div>
+          <div class="mod">imageService<span class="file">POST /api/ai/generate-image</span></div>
+          <div class="mod">characterService<span class="file">CRUD + AI via apiClient</span></div>
+          <div class="mod">inputService<span class="file">POST /api/ai/analyze-*</span></div>
+        </div>
+      </div>
+
+      <div class="arch-separator">&#9660; Vite proxy /api/* &rarr; localhost:3001 &#9660;</div>
+
+      <!-- Backend Routes Layer -->
+      <div class="layer backend-routes">
+        <div class="layer-label">Backend Routes (server/routes/)</div>
+        <div class="module-row">
+          <div class="mod core">ai.ts<span class="file">7 AI proxy endpoints</span></div>
+          <div class="mod">characters.ts<span class="file">GET/POST/PUT/DELETE</span></div>
+          <div class="mod">stories.ts<span class="file">GET/POST/DELETE</span></div>
+          <div class="mod">images.ts<span class="file">static file serving</span></div>
+        </div>
+      </div>
+
+      <!-- Backend Services Layer -->
+      <div class="layer backend-svc">
+        <div class="layer-label">Backend Services (server/services/) &mdash; full AI logic</div>
+        <div class="module-row">
+          <div class="mod core">gemini<span class="file">API client + retry + models</span></div>
+          <div class="mod core">storyPipeline<span class="file">4-step pipeline</span></div>
+          <div class="mod">imageGenerator<span class="file">scene image gen + save</span></div>
+          <div class="mod">characterAnalyzer<span class="file">avatar + gender/age</span></div>
+          <div class="mod">inputAnalyzer<span class="file">transcribe + image analyze</span></div>
+          <div class="mod">styleConfig<span class="file">4 style parameter sets</span></div>
+          <div class="mod">imageStorage<span class="file">disk save/read/delete</span></div>
+        </div>
+      </div>
+
+      <!-- Data Layer -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div class="layer data-layer" style="margin-bottom: 0;">
+          <div class="layer-label">Database (server/db/)</div>
+          <div class="module-row" style="flex-direction: column;">
+            <div class="mod">manga.db (SQLite)<span class="file">characters, stories, scenes</span></div>
+            <div class="mod">schema.ts<span class="file">CREATE TABLE + migrations</span></div>
+          </div>
+        </div>
+        <div class="layer data-layer" style="margin-bottom: 0;">
+          <div class="layer-label">File Storage (data/images/)</div>
+          <div class="module-row" style="flex-direction: column;">
+            <div class="mod">avatars/<span class="file">character avatar PNGs</span></div>
+            <div class="mod">scenes/<span class="file">comic scene PNGs</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Utils -->
+      <div class="layer util-layer" style="margin-top: 16px;">
+        <div class="layer-label">Frontend Utils</div>
+        <div class="module-row">
+          <div class="mod">imageUtils<span class="file">upload preview / format convert</span></div>
+          <div class="mod">posterGenerator<span class="file">Canvas grid poster · v1.4</span></div>
+          <div class="mod">types.ts<span class="file">Character, Scene (caption), StoryOutput (title)</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 2: Story Pipeline -->
+  <div class="section">
+    <div class="section-title">Story Pipeline (server/storyPipeline) - Backend</div>
+    <div style="overflow-x: auto;">
+      <div class="pipeline">
+        <div class="step normal">
+          <div class="step-num">Step 1</div>
+          <div class="step-name">Story Outline</div>
+          <div class="step-desc">raw input &rarr; story arc · only mentioned chars enforced · others as ref only (v1.6)</div>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div class="step gate" style="position: relative;">
+          <div class="arrow-retry">no retry &middot; degrade</div>
+          <div class="step-num">Step 2 &middot; Gate</div>
+          <div class="step-name">Outline Review</div>
+          <div class="step-desc">check: narrative drive, causality, emotional arc &rarr; issues passed to Step 3</div>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div class="step normal">
+          <div class="step-num">Step 3</div>
+          <div class="step-name">Script Detail</div>
+          <div class="step-desc">outline + issues &rarr; description (50-100字 for image gen) + caption (10-20字 for display)</div>
+        </div>
+        <div class="arrow">&rarr;</div>
+        <div class="step gate">
+          <div class="step-num">Step 4 &middot; Check</div>
+          <div class="step-name">Consistency Check</div>
+          <div class="step-desc">check: character, scene, timeline consistency &rarr; local fix</div>
+        </div>
+        <div class="arrow" style="color: #22c55e; font-weight: 700;">&#8214;</div>
+        <div class="step normal" style="background: #dcfce7; border: 2px solid #22c55e;">
+          <div class="step-num" style="color: #166534;">parallel · v1.6</div>
+          <div class="step-name">Title Gen</div>
+          <div class="step-desc">4-10字 noun phrase · runs in parallel with Step 4 · returned in StoryOutput.title</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top: 12px; font-size: 12px; color: #666; text-align: center;">
+      All steps use <strong>gemini-3-flash-preview</strong> (TEXT_MODEL) &middot;
+      Step 4 + Title Gen run in <strong>Promise.all</strong> (parallel) &middot; title returned early, before any image generation
+    </div>
+  </div>
+
+  <!-- Section 3: Image Generation Flow -->
+  <div class="section">
+    <div class="section-title">Image Generation Flow (server/imageGenerator) - Backend</div>
+    <div class="flow-box">
+      <div style="background: #dcfce7; border: 1px solid #22c55e; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: #166534;">
+        <strong>v1.6 锚定帧策略</strong>：Scene 1（基准帧）仅用人物参考图生成 · Scene 2+ 统一参考 Scene 1，不再链式传递 · 避免漂移累积
+      </div>
+      <div class="flow-row">
+        <div class="flow-item input">Scene Script (description)</div>
+        <span class="flow-arrow">+</span>
+        <div class="flow-item input">Style Params</div>
+        <span class="flow-arrow">+</span>
+        <div class="flow-item input">Character Refs (photo + avatar from DB)</div>
+        <span class="flow-arrow">+</span>
+        <div class="flow-item input">Scene 1 Anchor Frame (Scene 2+ only)</div>
+      </div>
+      <div style="text-align: center; color: #94a3b8; font-size: 16px; margin: 4px 0;">&darr;</div>
+      <div class="flow-row" style="justify-content: center;">
+        <div class="flow-item backend">Prompt Builder (6-layer priority)</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item backend">gemini-3-pro-image-preview</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item backend">Save to disk (imageStorage)</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output">Image URL (/api/images/scenes/xxx.png)</div>
+      </div>
+      <div style="text-align: center; color: #94a3b8; font-size: 16px; margin: 4px 0;">&darr; fail?</div>
+      <div class="flow-row" style="justify-content: center;">
+        <div class="flow-item fallback">Fallback: text-only prompt (no refs)</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item backend">gemini-3-pro-image-preview</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output">Image URL</div>
+      </div>
+    </div>
+    <div style="margin-top: 16px; font-size: 12px; color: #666;">
+      <strong>Prompt priority (high &rarr; low):</strong>
+      &nbsp; 1. Consistency rules &nbsp;&rarr;&nbsp; 2. Character visuals &nbsp;&rarr;&nbsp; 3. Scene description &nbsp;&rarr;&nbsp; 4. Style keywords &nbsp;&rarr;&nbsp; 5. Quality tags &nbsp;&rarr;&nbsp; 6. Negative constraints
+    </div>
+  </div>
+
+  <!-- Section 4: Resolution Strategy -->
+  <div class="section">
+    <div class="section-title">Resolution Strategy</div>
+    <div class="res-compare">
+      <div class="res-card panel">
+        <div class="label">Comic Panel</div>
+        <div class="value">1K</div>
+        <div class="detail">1024 &times; 1024 &middot; fast generation</div>
+      </div>
+      <div class="res-card avatar">
+        <div class="label">Character Avatar</div>
+        <div class="value">2K</div>
+        <div class="detail">2048 &times; 2048 &middot; high detail for reference</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 5: Character System -->
+  <div class="section">
+    <div class="section-title">Character System (server/characterAnalyzer) - Backend</div>
+    <div class="flow-box">
+      <div class="flow-row">
+        <div class="flow-item input">User Photo + Name</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item backend">POST /api/characters</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item backend">characterAnalyzer.createCharacterFull()</div>
+      </div>
+      <div style="margin: 8px 0 8px 48px; font-size: 12px; color: #666;">
+        &darr; internally executes:
+      </div>
+      <div class="flow-row" style="margin-left: 48px;">
+        <div class="flow-item backend">analyzeCharacter()</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item backend">generateAvatar() [2K, 1:1]</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item backend">detectGenderAge()</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output">Save to disk + SQLite</div>
+      </div>
+      <div class="flow-row" style="margin-top: 16px;">
+        <div class="flow-item input">Edit gender/age &rarr; Save</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item service">updateCharacterDescription() [frontend]</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item backend">PUT /api/characters/:id</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output">Update SQLite</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-item input">Click refresh avatar</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item backend">POST /api/ai/generate-avatar</div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item output">New avatar URL</div>
+      </div>
+      <div style="margin-top: 8px; padding-top: 12px; border-top: 1px dashed #e5e7eb;">
+        <div style="font-size: 12px; color: #666;">
+          <strong>v1.3:</strong> All AI logic runs on backend &middot; Images saved to disk, URLs returned to frontend &middot; Data persisted in SQLite
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 6: Service Dependency Graph -->
+  <div class="section">
+    <div class="section-title">Service Dependency Graph</div>
+    <div class="flow-box" style="text-align: center; font-family: monospace; font-size: 13px; line-height: 2.2;">
+      <pre style="display: inline-block; text-align: left;">
+[Frontend]                              [Backend]
+App.tsx (dispatch)                      server/index.ts (Express :3001)
+  ├── inputService ──→ apiClient        ├── routes/ai.ts ──→ inputAnalyzer ──→ gemini
+  ├── storyService ──→ apiClient        ├── routes/ai.ts ──→ storyPipeline ──→ gemini
+  ├── imageService ──→ apiClient        │                      └── styleConfig
+  ├── characterService → apiClient      ├── routes/ai.ts ──→ imageGenerator ──→ gemini
+  │                        │            │                      ├── styleConfig
+  └── imageUtils           │            │                      └── imageStorage
+                           │            ├── routes/ai.ts ──→ characterAnalyzer → gemini
+              Vite proxy ──┘            │                      └── imageStorage
+              /api/* → :3001            ├── routes/characters ──→ db + characterAnalyzer
+                                        ├── routes/stories ────→ db
+                                        └── routes/images ─────→ data/images/ (static)
+      </pre>
+    </div>
+  </div>
+
+  <!-- Section 7: Constraints -->
+  <div class="section">
+    <div class="section-title">Constraints (Red Lines) - C01 ~ C38 <span style="background: #22c55e; color: white; font-size: 10px; padding: 2px 8px; border-radius: 4px; margin-left: 8px;">v1.6 +12 since v1.3</span></div>
+    <div class="constraint-grid">
+      <div class="constraint"><span class="constraint-id">C01</span> Backend env vars in .env (GEMINI_API_KEY), read via process.env</div>
+      <div class="constraint"><span class="constraint-id">C02</span> Frontend: components &rarr; services &rarr; apiClient; no direct @google/genai import</div>
+      <div class="constraint"><span class="constraint-id">C03</span> Backend: withRetry (3x); Frontend apiClient: simple retry (1x on 5xx)</div>
+      <div class="constraint"><span class="constraint-id">C04</span> Model names from server/services/gemini.ts constants only</div>
+      <div class="constraint"><span class="constraint-id">C05</span> Panel = 1K, Avatar = 2K, no exceptions</div>
+      <div class="constraint"><span class="constraint-id">C06</span> Avatar gen must include both photo + text description</div>
+      <div class="constraint"><span class="constraint-id">C07</span> Style prompts from server/services/styleConfig.getStylePrompt()</div>
+      <div class="constraint"><span class="constraint-id">C08</span> Same ComicStyle + AspectRatio across all scenes in a batch</div>
+      <div class="constraint"><span class="constraint-id">C09</span> 4-step pipeline must execute in order, no skipping</div>
+      <div class="constraint"><span class="constraint-id">C10</span> Quality gate: review only, no retry, degrade &amp; forward issues</div>
+      <div class="constraint"><span class="constraint-id">C11</span> All JSON responses must pass JSON.parse() validation</div>
+      <div class="constraint"><span class="constraint-id">C12</span> Photos must be compressed before API call (800px, 0.6)</div>
+      <div class="constraint"><span class="constraint-id">C13</span> System prompts in backend services must match Product-Spec.md</div>
+      <div class="constraint"><span class="constraint-id">C14</span> Ref-image failure must fallback to text-only, no hard error</div>
+      <div class="constraint"><span class="constraint-id">C15</span> Architecture.md changes must sync architecture-diagram.html</div>
+      <div class="constraint"><span class="constraint-id">C16</span> Gender/age detection right after avatar gen, no skip</div>
+      <div class="constraint"><span class="constraint-id">C17</span> Avatar aspect ratio fixed to 1:1</div>
+      <div class="constraint"><span class="constraint-id">C18</span> On save, gender/age must write to character.description</div>
+      <div class="constraint"><span class="constraint-id">C19</span> description format: "gender, ageGroup (specificAge), features..."</div>
+      <div class="constraint new"><span class="constraint-id">C20</span> Frontend must NOT store or read API Key</div>
+      <div class="constraint new"><span class="constraint-id">C21</span> Images must be in data/images/{avatars|scenes}/ only</div>
+      <div class="constraint new"><span class="constraint-id">C22</span> All DB tables must have user_id field (NULL for now)</div>
+      <div class="constraint new"><span class="constraint-id">C23</span> Frontend uses image URLs, no base64 Data URLs for storage</div>
+      <div class="constraint new"><span class="constraint-id">C24</span> Backend API returns { success, data?, error? } format</div>
+      <div class="constraint new"><span class="constraint-id">C25</span> Image filenames must be UUID (crypto.randomUUID())</div>
+      <div class="constraint new"><span class="constraint-id">C26</span> Frontend services must NOT import @google/genai</div>
+      <div class="constraint new"><span class="constraint-id">C27</span> Auto-save (POST /api/stories) must trigger after generation, no manual save</div>
+      <div class="constraint new"><span class="constraint-id">C28</span> Scene edits debounce-sync to backend (PUT /api/stories/:id), 1s delay</div>
+      <div class="constraint new"><span class="constraint-id">C29</span> Poster gen uses native Canvas API only, no html2canvas</div>
+      <div class="constraint new"><span class="constraint-id">C30</span> Poster layout: 2-col grid, odd-last centered, watermark = "MangaGrow"</div>
+      <div class="constraint new"><span class="constraint-id">C31</span> Title gen failure must NOT block main flow; fallback to input_summary[:10]</div>
+      <div class="constraint new"><span class="constraint-id">C32</span> HistoryPanel interaction must match CharacterLibrary (drawer, close btn, animation)</div>
+      <div class="constraint new"><span class="constraint-id">C33</span> Loaded history story must display identically to freshly generated story</div>
+      <div class="constraint new"><span class="constraint-id">C34</span> Scene card shows caption below image; full script only in edit popup</div>
+      <div class="constraint new"><span class="constraint-id">C35</span> Character quick-area auto-matches names in input text; empty text = no chars shown</div>
+      <div class="constraint new"><span class="constraint-id">C36</span> Character avatar click must open library + navigate directly to detail view</div>
+      <div class="constraint new"><span class="constraint-id">C37</span> Title gen runs parallel with Step 4 (Promise.all); frontend sets title before images start</div>
+      <div class="constraint new"><span class="constraint-id">C38</span> Scene 2+ must reference Scene 1 anchor frame (not previous scene); user-photo mode unchanged</div>
+    </div>
+  </div>
+
+  <!-- Section 8: Main Data Flow -->
+  <div class="section">
+    <div class="section-title">Main Data Flow (User clicks "Generate Comic") · v1.6</div>
+    <div class="flow-box" style="font-family: monospace; font-size: 12px; line-height: 2;">
+      <pre style="display: inline-block; text-align: left; white-space: pre-wrap;">
+User Input (text / voice / photos)
+        │
+        ▼
+  [Frontend] inputService → POST /api/ai/transcribe-audio → text
+             inputService → POST /api/ai/analyze-images → ImageAnalysis[]
+        │
+        ▼
+  [Frontend] storyService → POST /api/ai/generate-story
+        │
+        ▼
+  [Backend storyPipeline]
+        │  Step 1: generateOutline ──▶ story arc (mentioned chars enforced; others = ref only)
+        │  Step 2: reviewOutline ────▶ pass / degrade (issues → Step 3)
+        │  Step 3: detailScripts ────▶ description (image gen) + caption (display)
+        │  Step 4: checkConsistency ─▶ fix inconsistencies   ┐ Promise.all (parallel)
+        │  Title:  generateTitle ──────▶ 4-10字 noun phrase  ┘
+        │
+        ▼  → return StoryOutput { scripts, title, keyObjects, ... }
+  ★ [Frontend] setStoryTitle(title) ←── 标题立即显示，图片尚未开始生成
+        │
+        ▼
+  [Sequential Image Generation · Anchor Frame Strategy]
+        │
+        ├─ HAS user photos ──▶ Promise.all: POST /api/ai/generate-image (parallel)
+        │     each scene uses its own user photo as reference
+        │
+        └─ NO user photos ──▶ Sequential (one by one)
+              Scene 1 (基准帧): character refs only → generates anchor frame
+              Scene 2+        : anchor frame (Scene 1) as ref → consistent, no drift
+        │
+        ▼
+  [Backend imageGenerator] per call:
+        ├─ Read character avatars from disk (via referenceCharIds → DB → file)
+        ├─ Build prompt (styleConfig + 6-layer priority)
+        ├─ Scene ref label: "基准帧" for anchor (not "上一个分镜")
+        ├─ Call Gemini → save to data/images/scenes/ → return URL
+        │
+        ▼
+  [Frontend] Update Scene: imageUrl = /api/images/scenes/xxx.png
+      </pre>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
