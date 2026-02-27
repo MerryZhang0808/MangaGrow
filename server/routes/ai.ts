@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { transcribeAudio, analyzeImages } from '../services/inputAnalyzer.js';
-import { generateStory } from '../services/storyPipeline.js';
+import { generateStory, generateYearlySummary } from '../services/storyPipeline.js';
 import { generateSceneImage, CharacterImageRef } from '../services/imageGenerator.js';
 import { analyzeCharacter, detectGenderAge, generateAvatar } from '../services/characterAnalyzer.js';
 import { saveImage } from '../services/imageStorage.js';
@@ -132,8 +132,8 @@ router.post('/generate-image', async (req: Request, res: Response) => {
       isUserPhoto
     });
 
-    // Save generated image to disk
-    const imagePath = saveImage('scenes', result.data, result.mimeType);
+    // Save generated image to disk (scenes/ is transient session storage; TODO: review in T-40)
+    const imagePath = saveImage('scenes' as any, result.data, result.mimeType);
     res.json({ success: true, data: { imageUrl: `/api/images/${imagePath}` } });
   } catch (e: any) {
     console.error('[AI Route] generate-image failed:', e.message);
@@ -220,6 +220,23 @@ router.post('/detect-gender-age', async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error('[AI Route] detect-gender-age failed:', e.message);
     res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/ai/generate-summary (v1.7)
+// C24: standard response  C40: on failure returns { success: false, error } — frontend uses fallback text
+router.post('/generate-summary', async (req: Request, res: Response) => {
+  try {
+    const { stories } = req.body;
+    if (!stories || !Array.isArray(stories) || stories.length === 0) {
+      return res.status(400).json({ success: false, error: 'stories array is required and must not be empty' });
+    }
+    const summary = await generateYearlySummary(stories);
+    res.json({ success: true, data: { summary } });
+  } catch (e: any) {
+    // C40: never return 500 — frontend will use degraded fallback text
+    console.error('[AI Route] generate-summary failed:', e.message);
+    res.json({ success: false, error: e.message });
   }
 });
 

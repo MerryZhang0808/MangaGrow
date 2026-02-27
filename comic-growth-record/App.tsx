@@ -1,16 +1,17 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { InputPanel } from './components/InputPanel';
 import { DisplayPanel } from './components/DisplayPanel';
 import { CharacterLibrary } from './components/CharacterLibrary';
 import { HistoryPanel } from './components/HistoryPanel';
-import { Button } from './components/Button';
+import { GrowthAlbum } from './components/GrowthAlbum';
 import { ComicStyle, AspectRatio, Scene, Character, KeyObject } from './types';
 import { analyzeImages } from './services/inputService';
 import { generateStory } from './services/storyService';
 import { generateSceneImage } from './services/imageService';
 import { getCharacterReferences, getCharacters } from './services/characterService';
-import { saveStory, updateStory, getStory } from './services/apiClient';
-import { BookOpen, User, Plus, Clock } from 'lucide-react';
+import { saveStory } from './services/apiClient';
+import { generatePoster } from './utils/posterGenerator';
+import { BookOpen, User, Plus, Clock, Images } from 'lucide-react';
 
 const App: React.FC = () => {
   // State: Inputs
@@ -28,16 +29,15 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStage, setGenerationStage] = useState("");
 
-  // State: Story persistence (C27, C28)
-  const [currentStoryId, setCurrentStoryId] = useState<string | null>(null);
+  // State: Story persistence (C27, C42)
   const [storyTitle, setStoryTitle] = useState<string>('');
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [storyCreatedAt, setStoryCreatedAt] = useState<number | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // State: Sidebar
+  // State: Sidebar / Panels (C41: GrowthAlbum and HistoryPanel are mutually exclusive)
   const [isCharLibOpen, setIsCharLibOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isGrowthAlbumOpen, setIsGrowthAlbumOpen] = useState(false);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [activeCharacterId, setActiveCharacterId] = useState<string | undefined>(undefined);
 
@@ -48,65 +48,53 @@ const App: React.FC = () => {
       .catch(e => console.error('[App] Failed to load characters:', e));
   }, []);
 
-  // C28: Debounce sync — 1 second after last edit
-  const debouncedSync = useCallback((storyId: string, data: Record<string, any>) => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    setSaveStatus('saving');
-    debounceRef.current = setTimeout(async () => {
-      try {
-        await updateStory(storyId, data);
-        setSaveStatus('saved');
-      } catch (e) {
-        console.error('[App] Sync failed:', e);
-        setSaveStatus('idle');
-      }
-    }, 1000);
-  }, []);
-
   // Handle title change (editable title)
   const handleTitleChange = useCallback((newTitle: string) => {
     setStoryTitle(newTitle);
-    if (currentStoryId) {
-      debouncedSync(currentStoryId, { title: newTitle });
-    }
-  }, [currentStoryId, debouncedSync]);
-
-  // Handle scene edit or redraw — sync scenes to backend
-  const syncScenes = useCallback((updatedScenes: Scene[]) => {
-    if (!currentStoryId) return;
-    const scenesData = updatedScenes.map(s => ({
-      sceneNumber: s.sceneNumber,
-      script: s.script,
-      caption: s.caption || '',
-      imagePath: s.imageUrl || null,
-      emotionalBeat: ''
-    }));
-    debouncedSync(currentStoryId, { scenes: scenesData });
-  }, [currentStoryId, debouncedSync]);
-
-  // Load a history story into the display
-  const loadStory = useCallback(async (storyId: string) => {
-    try {
-      const story = await getStory(storyId);
-      const loadedScenes: Scene[] = (story.scenes || []).map((s: any) => ({
-        id: s.id || Math.random().toString(36).substr(2, 9),
-        sceneNumber: s.sceneNumber,
-        script: s.script,
-        caption: s.caption || '',
-        imageUrl: s.imageUrl || null,
-        isLoading: false
-      }));
-      setScenes(loadedScenes);
-      setStoryTitle(story.title || '');
-      setCurrentStoryId(storyId);
-      setStoryCreatedAt(story.createdAt);
-      setSaveStatus('saved');
-      setIsHistoryOpen(false);
-    } catch (e) {
-      console.error('[App] Failed to load story:', e);
-      alert('加载故事失败，请重试');
-    }
   }, []);
+
+  // C27: Manual save — C42: ① generatePoster → ② base64 → ③ POST
+  const handleSaveStory = useCallback(async () => {
+    if (!scenes.length || isSaved) return;
+    setIsSaving(true);
+    try {
+      // ① Generate poster canvas from scenes
+      const scenesWithImages = scenes.filter(s => s.imageUrl).map(s => ({
+        imageUrl: s.imageUrl!,
+        caption: s.caption || ''
+      }));
+      const posterBlob = await generatePoster({
+        title: storyTitle,
+        date: new Date().toLocaleDateString('zh-CN'),
+        scenes: scenesWithImages
+      });
+
+      // ② Convert poster Blob to base64; collect input photos base64
+      const posterBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(posterBlob);
+      });
+      const inputPhotos = inputImages.map(img =>
+        img.startsWith('data:') ? img.split(',')[1] : img
+      );
+
+      // ③ POST story to backend
+      await saveStory({
+        title: storyTitle,
+        input_text: inputText,
+        input_photos: inputPhotos,
+        poster_base64: posterBase64,
+        style
+      });
+      setIsSaved(true);
+    } catch (e) {
+      console.error('[App] Save failed:', e);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [scenes, storyTitle, inputText, inputImages, style, isSaved]);
 
   // Main Generation Logic — uses storyService pipeline + imageService
   const handleGenerate = async () => {
@@ -185,9 +173,14 @@ const App: React.FC = () => {
       setGenerationStage("生成漫画图片...");
 
       // Prepare contexts
-      const characterContext = mergedCharacters.map((c: KeyObject) =>
-        `[人物: ${c.name}]\n外貌特征: ${c.description}`
-      ).join('\n\n');
+      // 有头像的库角色：头像管发型/面部，服装跟场景描述走（故事临时服装优先于头像服装）
+      const libraryCharNameSet = new Set(characters.map(c => c.name.toLowerCase()));
+      const characterContext = mergedCharacters.map((c: KeyObject) => {
+        if (libraryCharNameSet.has(c.name.toLowerCase())) {
+          return `[人物: ${c.name}] 发型、发色、面部特征严格以上方Q版头像参考图为准；本分镜的服装以[3. 画面描述]中写明的服装为准（若故事有特定着装则以描述为准，若无则参考头像服装）。`;
+        }
+        return `[人物: ${c.name}]\n外貌特征: ${c.description}`;
+      }).join('\n\n');
 
       const objectContext = generatedKeyObjects.map((o: KeyObject) =>
         `[物品: ${o.name}] ${o.description}`
@@ -197,12 +190,10 @@ const App: React.FC = () => {
       const hasUserPhotos = inputImages.length > 0 && inputImages.length >= initialScenes.length;
       const firstBatch = initialScenes.slice(0, AUTO_GENERATE_COUNT);
 
-      // Track generated imageUrls for auto-save (keyed by scene.id)
-      const sceneImageUrls = new Map<string, string>();
-
       // Helper: build params and generate one scene image
       const generateOne = async (scene: Scene, sceneIndex: number, sceneRefImages: string[], isPhoto: boolean) => {
-        const sortedRefChars = getCharacterReferences(characters, scene.script);
+        // 用 script + caption 联合匹配，防止 script 用代词但 caption 有名字时头像丢失
+        const sortedRefChars = getCharacterReferences(characters, `${scene.script} ${scene.caption || ''}`);
         const referenceCharIds = sortedRefChars
           .map(r => characters.find(c => c.name === r.name)?.id)
           .filter(Boolean) as string[];
@@ -218,7 +209,6 @@ const App: React.FC = () => {
             sceneReferenceImages: sceneRefImages,
             isUserPhoto: isPhoto
           });
-          sceneImageUrls.set(scene.id, imageUrl);
           setScenes(prev => prev.map(s =>
             s.id === scene.id ? { ...s, imageUrl, isLoading: false } : s
           ));
@@ -252,34 +242,6 @@ const App: React.FC = () => {
         }
       }
 
-      // 4. Auto-save (C27: mandatory post-generation save)
-      // sceneImageUrls is fully populated after image generation loops complete above
-      setGenerationStage("保存故事...");
-      setSaveStatus('saving');
-      try {
-        const savedStory = await saveStory({
-          title,
-          inputSummary: inputText,
-          style,
-          aspectRatio: ratio,
-          storyOutline: storyResult.storyOutline || '',
-          scenes: initialScenes.map((s, i) => ({
-            sceneNumber: s.sceneNumber,
-            script: s.script,
-            caption: s.caption || '',
-            imagePath: sceneImageUrls.get(s.id) || null,
-            emotionalBeat: scriptScenes[i]?.emotionalBeat || ''
-          }))
-        });
-
-        setCurrentStoryId(savedStory.id);
-        setStoryCreatedAt(savedStory.createdAt);
-        setSaveStatus('saved');
-      } catch (e) {
-        console.error('[App] Auto-save failed:', e);
-        setSaveStatus('idle');
-      }
-
     } catch (error) {
       console.error("Workflow failed", error);
       const msg = error instanceof Error ? error.message : "Unknown error";
@@ -297,10 +259,9 @@ const App: React.FC = () => {
     setKeyObjects([]);
     setStoryCharacters([]);
     setIsGenerating(false);
-    setCurrentStoryId(null);
     setStoryTitle('');
-    setSaveStatus('idle');
-    setStoryCreatedAt(null);
+    setIsSaved(false);
+    setIsSaving(false);
   };
 
   return (
@@ -312,22 +273,34 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex-1 flex flex-col gap-6 w-full items-center">
+          {/* 人物库 */}
           <button
-            onClick={() => { setIsCharLibOpen(true); setIsHistoryOpen(false); }}
+            onClick={() => { setIsCharLibOpen(true); setIsHistoryOpen(false); setIsGrowthAlbumOpen(false); }}
             className={`p-3 rounded-xl transition-all ${isCharLibOpen ? 'text-primary-600 bg-primary-50' : 'text-gray-400 hover:text-primary-600 hover:bg-primary-50'}`}
             title="人物库"
           >
             <User size={24} />
           </button>
 
+          {/* 历史记录 */}
           <button
-            onClick={() => { setIsHistoryOpen(true); setIsCharLibOpen(false); }}
+            onClick={() => { setIsHistoryOpen(true); setIsCharLibOpen(false); setIsGrowthAlbumOpen(false); }}
             className={`p-3 rounded-xl transition-all ${isHistoryOpen ? 'text-primary-600 bg-primary-50' : 'text-gray-400 hover:text-primary-600 hover:bg-primary-50'}`}
             title="历史记录"
           >
             <Clock size={24} />
           </button>
 
+          {/* 成长相册 (C41: mutually exclusive with HistoryPanel) */}
+          <button
+            onClick={() => { setIsGrowthAlbumOpen(true); setIsHistoryOpen(false); setIsCharLibOpen(false); }}
+            className={`p-3 rounded-xl transition-all ${isGrowthAlbumOpen ? 'text-primary-600 bg-primary-50' : 'text-gray-400 hover:text-primary-600 hover:bg-primary-50'}`}
+            title="成长相册"
+          >
+            <Images size={24} />
+          </button>
+
+          {/* 新创作 */}
           <button
             onClick={resetApp}
             className="p-3 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-xl transition-all"
@@ -355,12 +328,17 @@ const App: React.FC = () => {
         initialCharacterId={activeCharacterId}
       />
 
-      {/* Sidebar Overlay (History Panel) */}
+      {/* Full-screen History Panel (C41: mutually exclusive with GrowthAlbum) */}
       <HistoryPanel
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
-        onSelectStory={loadStory}
-        currentStoryId={currentStoryId}
+      />
+
+      {/* Full-screen Growth Album (C41: mutually exclusive with HistoryPanel) */}
+      <GrowthAlbum
+        isOpen={isGrowthAlbumOpen}
+        onClose={() => setIsGrowthAlbumOpen(false)}
+        characters={characters}
       />
 
       {/* 2. Middle Input Column */}
@@ -398,9 +376,8 @@ const App: React.FC = () => {
           onReset={resetApp}
           storyTitle={storyTitle}
           onTitleChange={handleTitleChange}
-          saveStatus={saveStatus}
-          storyCreatedAt={storyCreatedAt}
-          onScenesChange={syncScenes}
+          saveStatus={isSaved ? 'saved' : (isSaving ? 'saving' : 'unsaved')}
+          onSaveStory={handleSaveStory}
         />
       </div>
     </div>

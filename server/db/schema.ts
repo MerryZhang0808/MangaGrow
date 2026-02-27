@@ -3,6 +3,7 @@ import { getDb } from './index.js';
 /**
  * Initialize database tables.
  * C22: All tables include user_id field (NULL for now, multi-user ready).
+ * v1.8: scenes table removed; stories table gains input_text/input_photos/poster_url.
  */
 export function initDb(): void {
   const db = getDb();
@@ -27,27 +28,15 @@ export function initDb(): void {
       id TEXT PRIMARY KEY,
       user_id TEXT,
       title TEXT,
-      input_summary TEXT,
+      input_text TEXT,
+      input_photos TEXT,
+      poster_url TEXT,
       style TEXT,
-      aspect_ratio TEXT,
-      story_outline TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS scenes (
-      id TEXT PRIMARY KEY,
-      story_id TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-      scene_number INTEGER NOT NULL,
-      script TEXT,
-      caption TEXT,
-      image_path TEXT,
-      emotional_beat TEXT,
       created_at INTEGER NOT NULL
     );
   `);
 
-  // Migration: add title and updated_at to existing stories table
+  // Migration: add v1.8 columns to existing stories table
   const storyColumns = db.prepare("PRAGMA table_info(stories)").all() as any[];
   const columnNames = storyColumns.map((c: any) => c.name);
 
@@ -55,17 +44,17 @@ export function initDb(): void {
     db.exec('ALTER TABLE stories ADD COLUMN title TEXT');
     console.log('[DB] Migration: added title column to stories');
   }
-  if (!columnNames.includes('updated_at')) {
-    db.exec('ALTER TABLE stories ADD COLUMN updated_at INTEGER');
-    console.log('[DB] Migration: added updated_at column to stories');
+  if (!columnNames.includes('input_text')) {
+    db.exec('ALTER TABLE stories ADD COLUMN input_text TEXT');
+    console.log('[DB] Migration: added input_text column to stories');
   }
-
-  // Migration: add caption column to scenes table
-  const sceneColumns = db.prepare("PRAGMA table_info(scenes)").all() as any[];
-  const sceneColumnNames = sceneColumns.map((c: any) => c.name);
-  if (!sceneColumnNames.includes('caption')) {
-    db.exec('ALTER TABLE scenes ADD COLUMN caption TEXT');
-    console.log('[DB] Migration: added caption column to scenes');
+  if (!columnNames.includes('input_photos')) {
+    db.exec('ALTER TABLE stories ADD COLUMN input_photos TEXT');
+    console.log('[DB] Migration: added input_photos column to stories');
+  }
+  if (!columnNames.includes('poster_url')) {
+    db.exec('ALTER TABLE stories ADD COLUMN poster_url TEXT');
+    console.log('[DB] Migration: added poster_url column to stories');
   }
 
   console.log('[DB] Tables initialized');

@@ -40,7 +40,7 @@ paths:
 - 图片生成的风格提示词必须从 `server/services/styleConfig.getStylePrompt()` 获取（C07）
 
 ## 数据存储
-- 图片文件必须存储在 `data/images/{type}/` 下（type: avatars/scenes）（C21）
+- 图片文件必须存储在 `data/images/{type}/` 下（type: avatars/posters/inputs）（C21，v1.8 更新）
 - 图片保存到磁盘时必须使用唯一文件名（UUID）（C25）
 - 数据库所有表必须包含 `user_id` 字段（当前可为 NULL）（C22）
 - 前端图片展示必须使用后端 URL（`/api/images/...`），不允许使用 base64 Data URL 长期存储（C23）
@@ -54,18 +54,29 @@ paths:
 - 故事管线 4 步必须按顺序执行，不允许跳步（C09）
 - 质量关卡仅审核、不重试，不通过时降级继续（C10）
 
-## 自动保存与同步（v1.4）
-- 生成完成后必须自动保存（POST /api/stories），不允许依赖用户手动保存（C27）
-- 用户修改分镜（脚本编辑、重绘、标题修改）后必须 debounce 同步到后端（PUT /api/stories/:id），间隔 1 秒（C28）
+## 手动保存（v1.8 重构）
+- 生成完成后必须显示「保存故事」按钮（不自动保存），`scenes.length > 0 && !isSaved` 时按钮可见，保存成功后按钮消失（C27）
+- 保存流程必须严格三步顺序：① posterGenerator.generatePoster() ② imageStorage.saveImage('posters'/'inputs') ③ POST /api/stories；任一步骤失败不得写入数据库（C42）
+- 不存在 PUT /api/stories/:id，禁止任何 debounce 同步逻辑（C28 已废除）
+- 保存后故事只读，不支持编辑/重绘
 - 标题生成失败不允许阻塞主流程，必须降级为 input_summary 前 15 字（C31）
-- 加载历史故事后在右侧面板呈现，展示结构必须与生成结果完全一致（C33）
 
 ## 海报导出（v1.4）
 - 海报生成必须使用原生 Canvas API，不引入 html2canvas 等第三方库（C29）
 - 海报排版固定 2 列，奇数分镜末行居中，水印固定 "MangaGrow"（C30）
 
-## 历史记录（v1.4）
-- HistoryPanel 交互方式必须与 CharacterLibrary 一致（折叠侧边栏、关闭按钮、动画）（C32）
+## 历史记录（v1.8 重构）
+- HistoryPanel 必须为全宽双栏主页面：左栏 280px 固定宽故事列表 + 右栏 flex 只读详情（C43）
+- 右栏只展示 posterUrl/inputText/inputPhotos，不允许渲染任何编辑/重绘控件（C43）
+- 历史记录严格只读，不支持将历史故事加载到创作面板（C33 已废除 v1.8）
+- C32（侧边栏约束）已废除
+
+## PDF 成长故事书（v1.7 新增，v1.8 更新）
+- PDF 中所有中文文字必须通过 Canvas fillText 渲染后转为图片嵌入，不允许直接调用 jsPDF.text 输出中文（避免字体缺失乱码）（C39）
+- 年度总结 AI 生成失败时必须降级为固定文字（不允许空白总结页或阻塞 PDF 生成），降级文字：「这一段时间里，记录了 ${count} 个成长故事。」（C40）
+- jsPDF 仅允许在 `comic-growth-record/utils/pdfGenerator.ts` 中引入，其他文件不允许 import jspdf
+- 成长相册（isGrowthAlbumOpen）与历史记录主页面（isHistoryOpen）必须互斥，不允许同时显示（C41）
+- 图片串行生成时，Scene 2+ 以上一张已生成分镜图作为场景参考（链式传递），通过 `[风格参考帧]` prompt label 保持画风一致；有用户照片时每张用对应用户照片作参考（C38）
 
 ## 文档同步
 - Architecture.md 变更时必须同步更新 architecture-diagram.html（C15）

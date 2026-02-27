@@ -1,3 +1,8 @@
+---
+name: code
+description: 当用户输入 /code 或 /code T-XX 时，使用此技能。按 Tasks.md 任务清单逐个实现代码，严格遵守 Architecture.md 约束，只执行不决策。
+---
+
 # Coder Skill — 施工队长
 
 ## 角色定义

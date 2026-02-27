@@ -66,6 +66,7 @@ export interface SceneScript {
   sceneNumber: number;
   description: string;
   emotionalBeat: string;
+  caption?: string;
 }
 
 export interface CharacterDef {

@@ -1,6 +1,23 @@
 // C29: Native Canvas API only, no html2canvas
 // C30: 2-column grid, odd last row centered, "MangaGrow" watermark
 
+// Wrap text into lines that fit within maxWidth
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let current = '';
+  for (const char of text) {
+    const test = current + char;
+    if (ctx.measureText(test).width > maxWidth && current) {
+      lines.push(current);
+      current = char;
+    } else {
+      current = test;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 export interface PosterOptions {
   title: string;
   date: string;
@@ -14,7 +31,7 @@ const POSTER_CONFIG = {
   columns: 2,
   padding: 40,
   titleHeight: 120,
-  scriptHeight: 60,
+  scriptHeight: 90,
   gap: 20,
   watermarkHeight: 60,
   cellWidth: 480, // each cell width
@@ -121,15 +138,19 @@ export async function generatePoster(options: PosterOptions): Promise<Blob> {
     ctx.lineWidth = 2;
     ctx.strokeRect(x, y, cfg.cellWidth, cellImageHeight);
 
-    // Draw caption text (truncate to 50 chars)
+    // Draw caption text with word wrap
     const captionRaw = scenes[i].caption;
-    const scriptText = captionRaw.length > 50
-      ? captionRaw.slice(0, 50) + '...'
-      : captionRaw;
     ctx.fillStyle = cfg.scriptColor;
     ctx.font = cfg.scriptFont;
     ctx.textAlign = 'center';
-    ctx.fillText(scriptText, x + cfg.cellWidth / 2, y + cellImageHeight + 35);
+    const lineHeight = 24;
+    const textMaxWidth = cfg.cellWidth - 24;
+    const lines = wrapText(ctx, captionRaw, textMaxWidth);
+    const totalTextHeight = lines.length * lineHeight;
+    const textStartY = y + cellImageHeight + (cfg.scriptHeight - totalTextHeight) / 2 + lineHeight;
+    lines.forEach((line, li) => {
+      ctx.fillText(line, x + cfg.cellWidth / 2, textStartY + li * lineHeight);
+    });
   }
 
   // Watermark

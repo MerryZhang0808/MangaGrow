@@ -1,3 +1,8 @@
+---
+name: qa
+description: 当用户输入 /qa 时，使用此技能。对照 Product-Spec.md、Architecture.md、Tasks.md 三层文档检查代码完整性和一致性，发现问题时创建修复任务，不自行修复代码。
+---
+
 # QA Skill — 测试工程师
 
 ## 角色定义

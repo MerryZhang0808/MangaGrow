@@ -6,7 +6,8 @@ import { getImagesBase } from '../services/imageStorage.js';
 const router = Router();
 
 // Allowed image types (subdirectories)
-const ALLOWED_TYPES = ['avatars', 'scenes'];
+// C21 v1.8: posters/inputs added for permanent storage; scenes kept for session images
+const ALLOWED_TYPES = ['avatars', 'scenes', 'posters', 'inputs'];
 
 // MIME type mapping
 const MIME_TYPES: Record<string, string> = {

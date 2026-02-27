@@ -68,6 +68,31 @@ export interface CharacterData {
   updatedAt: number | null;
 }
 
+// v1.8: Story/StorySummary types (scenes removed, poster/input fields added)
+export interface StorySummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  posterUrl: string | null;
+  inputText: string | null;
+}
+
+export interface StoryDetail {
+  id: string;
+  title: string;
+  createdAt: number;
+  posterUrl: string | null;
+  inputText: string | null;
+  inputPhotos: string[];  // parsed from JSON array
+  style: string | null;
+}
+
+// v1.8: 年度总结输入项（改为 title + inputText，不再使用 captions）
+export interface SummaryStoryItem {
+  title: string;
+  inputText: string;
+}
+
 export interface SceneImageParams {
   script: string;
   style: string;

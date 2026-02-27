@@ -6,16 +6,20 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const IMAGES_BASE = path.resolve(__dirname, '../../data/images');
 
-export type ImageType = 'avatars' | 'scenes';
+// C21: type must be one of avatars/posters/inputs (v1.8 updated, scenes removed)
+export type ImageType = 'avatars' | 'posters' | 'inputs';
 
 /**
  * Ensure image storage directories exist.
  * Called at server startup.
+ * C21: data/images/{avatars|posters|inputs}/ only.
  */
 export function ensureDirectories(): void {
   const dirs = [
     path.join(IMAGES_BASE, 'avatars'),
-    path.join(IMAGES_BASE, 'scenes'),
+    path.join(IMAGES_BASE, 'posters'),   // C21 v1.8: permanent poster storage
+    path.join(IMAGES_BASE, 'inputs'),    // C21 v1.8: permanent input photo storage
+    path.join(IMAGES_BASE, 'scenes'),    // transient session storage (imageGenerator)
   ];
   for (const dir of dirs) {
     fs.mkdirSync(dir, { recursive: true });

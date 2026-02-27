@@ -1,5 +1,5 @@
 import { GenerateContentResponse } from '@google/genai';
-import { StoryInput, StoryOutput, SceneScript, KeyObject, CharacterDef } from '../types.js';
+import { StoryInput, StoryOutput, SceneScript, KeyObject, CharacterDef, SummaryStoryItem } from '../types.js';
 import { getAiClient, withRetry, SAFETY_SETTINGS, TEXT_MODEL } from './gemini.js';
 import { getStyleDescription } from './styleConfig.js';
 
@@ -79,10 +79,6 @@ async function generateOutline(input: StoryInput): Promise<StoryOutline> {
     a => `图${a.index + 1}: ${a.description}`
   ).join('\n');
 
-  const charInfo = (input.characters || []).map(
-    c => `[${c.name}] ${c.description}`
-  ).join('\n');
-
   const styleDesc = getStyleDescription(input.style as any);
 
   const sceneCountRule = input.imageCount > 0
@@ -95,6 +91,16 @@ async function generateOutline(input: StoryInput): Promise<StoryOutline> {
   const mentionedChars = allChars.filter(c => inputTextLower.includes(c.name.toLowerCase()));
   const unmentionedChars = allChars.filter(c => !inputTextLower.includes(c.name.toLowerCase()));
 
+  // Step1 只传精简人物信息（姓名 + 性别 + 年龄段，不含外貌细节）
+  // 原因①：故事大纲阶段无需外貌描述，外貌细节仅在 Step3 图片生成时使用
+  // 原因②：含幼儿外貌详细描述会触发 Gemini 策略级 PROHIBITED_CONTENT 过滤
+  // 仅在 [人物档案] 中列出文本已提及的角色；未提及角色仅列名供 AI 自行决定
+  const simplifyChar = (c: typeof allChars[0]) => {
+    const parts = [c.gender, c.ageGroup, c.specificAge].filter(Boolean).join('，');
+    return `[${c.name}] ${parts || ''}`.trim();
+  };
+  const charInfo = (mentionedChars.length > 0 ? mentionedChars : allChars).map(simplifyChar).join('\n');
+
   let characterNameRule = '';
   if (mentionedChars.length > 0) {
     const mentionedList = mentionedChars.map(c => c.name).join('、');
@@ -104,7 +110,7 @@ async function generateOutline(input: StoryInput): Promise<StoryOutline> {
   }
   if (unmentionedChars.length > 0) {
     const unmentionedList = unmentionedChars.map(c => c.name).join('、');
-    characterNameRule += `\n[人物参考]：以下角色在用户描述中未被提及，可根据故事需要决定是否出现，仅作视觉参考：${unmentionedList}\n`;
+    characterNameRule += `\n[人物参考]：以下角色在用户描述中未被提及，如果故事自然不涉及他们，请勿强行加入：${unmentionedList}\n`;
   }
 
   const prompt = `根据以下用户输入，分析核心事件并生成漫画故事大纲。
@@ -193,10 +199,6 @@ async function detailScripts(
   console.log('[StoryPipeline] Step 3: Script Detailing');
   const ai = getAiClient();
 
-  const charInfo = (input.characters || []).map(
-    c => `[人物: ${c.name}]\n外貌特征: ${c.description}`
-  ).join('\n\n');
-
   const styleDesc = getStyleDescription(input.style as any);
 
   const outlineSummary = (outline.scenes || []).map(
@@ -213,16 +215,24 @@ async function detailScripts(
   const mentionedCharsDetail = allCharsDetail.filter(c => inputTextLowerDetail.includes(c.name.toLowerCase()));
   const unmentionedCharsDetail = allCharsDetail.filter(c => !inputTextLowerDetail.includes(c.name.toLowerCase()));
 
+  // Step3 同样使用精简人物信息，避免触发 PROHIBITED_CONTENT
+  // characterDefinitions 会在输出中由 AI 自行生成完整视觉描述，供图片生成阶段使用
+  const simplifyChar3 = (c: typeof allCharsDetail[0]) => {
+    const parts = [c.gender, c.ageGroup, c.specificAge].filter(Boolean).join('，');
+    return `[${c.name}] ${parts || ''}`.trim();
+  };
+  const charInfo = allCharsDetail.map(simplifyChar3).join('\n');
+
   let characterNameRule = '';
   if (mentionedCharsDetail.length > 0) {
     const mentionedList = mentionedCharsDetail.map(c => c.name).join('、');
     characterNameRule += `\n⚠️ **人物强制规则（最高优先级）**：
 1. 以下角色在用户描述中被提及，必须出现在故事的分镜中：${mentionedList}
-2. description 中出现的人物必须使用**精确名字**并包含完整视觉特征。\n`;
+2. 每个 description 中，凡出现上述角色时必须使用**精确姓名**（${mentionedList}）——**绝对禁止用「她/他/孩子/小孩/小女孩/小男孩」等代词或泛指替代已命名角色**，每次出现都必须明确写出角色姓名。\n`;
   }
   if (unmentionedCharsDetail.length > 0) {
     const unmentionedList = unmentionedCharsDetail.map(c => c.name).join('、');
-    characterNameRule += `\n[人物参考]：以下角色在用户描述中未被提及，可根据故事需要决定是否出现，仅作视觉参考：${unmentionedList}\n`;
+    characterNameRule += `\n[人物参考]：以下角色在用户描述中未被提及，如果故事自然不涉及他们，请勿强行加入：${unmentionedList}\n`;
   }
 
   const prompt = `根据故事大纲，细化每个分镜的详细脚本。
@@ -237,9 +247,10 @@ ${charInfo || '无预设人物'}
 ${styleDesc}
 ${issuesBlock}${characterNameRule}
 [细化要求]
-1. 每个分镜的 description 必须是 50-100 字的详细画面描述，用于漫画绘制，必须包含：人物动作、表情、场景环境、氛围、外貌细节
+1. 每个分镜的 description 必须是 50-100 字的详细画面描述，用于漫画绘制，必须包含：人物动作、表情、场景环境、氛围、服装细节
 2. 每个分镜的 caption 是 30-50 字的温馨故事叙述，展示在漫画图下方供读者阅读；必须紧密贴合用户描述的实际情节，用自然生动的语言把这一格发生的事情讲清楚，像在给小朋友讲故事，有画面感、有情感、有细节
 3. 标注每个分镜的情感节拍（emotionalBeat）
+4. **服装一致性规则（关键）**：先从用户原文中提取每位角色的服装信息（如"妈妈穿着睡衣"、"爸爸穿格子衬衫"等）。若用户明确描述了某角色的服装，则该角色在整个故事所有分镜的 description 中**必须每次都写出相同的服装描述**（例如始终写"浅蓝色棉质睡衣"）。若用户未描述服装，则 description 中只写动作和表情，不要自行假设服装款式。
 
 输出 JSON：
 {
@@ -369,6 +380,47 @@ ${text || '（无文字描述）'}${imageDesc}
     const fallback = (text || '未命名故事').slice(0, 10) + ((text || '').length > 10 ? '...' : '');
     return fallback;
   }
+}
+
+// === Year Summary Generation (v1.7) ===
+// C03: withRetry wrapping  C04: TEXT_MODEL constant  C40: throws on failure (route layer handles degradation)
+export async function generateYearlySummary(stories: SummaryStoryItem[]): Promise<string> {
+  console.log(`[StoryPipeline] generateYearlySummary: ${stories.length} stories`);
+  const ai = getAiClient();
+
+  // v1.8: SummaryStoryItem uses inputText instead of date+captions
+  const storiesText = stories
+    .map(s => `${s.title}：${s.inputText}`)
+    .join('\n');
+
+  const prompt = `你是一位温暖的成长记录者。根据以下孩子的成长故事记录，写一篇 300-500 字的温馨成长总结。
+
+[成长故事记录]
+${storiesText}
+
+[写作要求]
+- 用温柔、细腻的笔触，将这些故事串联成一段有情感流动的叙述
+- 要有时间的流动感，体现孩子的成长变化
+- 突出最温馨、最感人的细节
+- 结尾表达对孩子未来的美好期许
+- 语气亲切自然，像家长写给孩子的成长寄语
+- 不要逐条列举，要融合成连贯的段落文字
+- 只输出总结文字，不要标题和其他内容`;
+
+  const response = await withRetry<GenerateContentResponse>(() => ai.models.generateContent({
+    model: TEXT_MODEL,
+    contents: prompt,
+    config: {
+      responseMimeType: 'text/plain',
+      safetySettings: SAFETY_SETTINGS
+    }
+  }));
+
+  const summary = (response.text || '').trim();
+  if (!summary) throw new Error('AI returned empty summary');
+
+  console.log(`[StoryPipeline] Year summary generated (${summary.length} chars)`);
+  return summary;
 }
 
 // === Main Entry ===

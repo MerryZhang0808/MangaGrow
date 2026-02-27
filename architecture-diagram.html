@@ -38,6 +38,7 @@
   }
   .mod .file { font-size: 11px; font-weight: 400; color: #666; font-family: monospace; }
   .mod.core { border-left: 3px solid #ef4444; }
+  .mod.new { border-left: 3px solid #22c55e; background: rgba(220, 252, 231, 0.9); }
 
   /* Frontend layer */
   .frontend-ui {
@@ -151,6 +152,8 @@
   }
   .constraint.new { background: #dcfce7; border-left: 3px solid #22c55e; }
   .constraint.new .constraint-id { background: #22c55e; }
+  .constraint.deleted { background: #f8f9fa; border-left: 3px solid #d1d5db; opacity: 0.55; text-decoration: line-through; }
+  .constraint.deleted .constraint-id { background: #9ca3af; }
 
   /* Legend */
   .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 24px; font-size: 12px; color: #666; }
@@ -168,7 +171,7 @@
 
 <div class="container">
   <h1>MangaGrow Architecture</h1>
-  <p class="subtitle">Architecture.md v1.6 | 2026-02-24 | React + Vite + Express + SQLite + Gemini API</p>
+  <p class="subtitle">Architecture.md v1.8 | 2026-02-27 | React + Vite + Express + SQLite + Gemini API</p>
 
   <!-- Legend -->
   <div class="legend">
@@ -193,7 +196,8 @@
           <div class="mod">InputPanel<span class="file">text / voice / photo · auto-match chars</span></div>
           <div class="mod">DisplayPanel<span class="file">scene cards (caption) / script popup / export</span></div>
           <div class="mod">CharacterLibrary<span class="file">CRUD + detail · initialCharacterId</span></div>
-          <div class="mod">HistoryPanel<span class="file">history list + load story · v1.4</span></div>
+          <div class="mod new">HistoryPanel<span class="file">dual-column: left list + right read-only detail · v1.8</span></div>
+          <div class="mod new">GrowthAlbum<span class="file">time-axis browse + read-only detail + PDF trigger · v1.8</span></div>
         </div>
       </div>
 
@@ -215,7 +219,7 @@
       <div class="layer backend-routes">
         <div class="layer-label">Backend Routes (server/routes/)</div>
         <div class="module-row">
-          <div class="mod core">ai.ts<span class="file">7 AI proxy endpoints</span></div>
+          <div class="mod core">ai.ts<span class="file">8 AI proxy endpoints (+generate-summary v1.7)</span></div>
           <div class="mod">characters.ts<span class="file">GET/POST/PUT/DELETE</span></div>
           <div class="mod">stories.ts<span class="file">GET/POST/DELETE</span></div>
           <div class="mod">images.ts<span class="file">static file serving</span></div>
@@ -227,7 +231,7 @@
         <div class="layer-label">Backend Services (server/services/) &mdash; full AI logic</div>
         <div class="module-row">
           <div class="mod core">gemini<span class="file">API client + retry + models</span></div>
-          <div class="mod core">storyPipeline<span class="file">4-step pipeline</span></div>
+          <div class="mod core">storyPipeline<span class="file">4-step pipeline + generateYearlySummary · v1.7</span></div>
           <div class="mod">imageGenerator<span class="file">scene image gen + save</span></div>
           <div class="mod">characterAnalyzer<span class="file">avatar + gender/age</span></div>
           <div class="mod">inputAnalyzer<span class="file">transcribe + image analyze</span></div>
@@ -241,7 +245,7 @@
         <div class="layer data-layer" style="margin-bottom: 0;">
           <div class="layer-label">Database (server/db/)</div>
           <div class="module-row" style="flex-direction: column;">
-            <div class="mod">manga.db (SQLite)<span class="file">characters, stories, scenes</span></div>
+            <div class="mod">manga.db (SQLite)<span class="file">characters, stories (poster_url, input_text, input_photos)</span></div>
             <div class="mod">schema.ts<span class="file">CREATE TABLE + migrations</span></div>
           </div>
         </div>
@@ -249,7 +253,8 @@
           <div class="layer-label">File Storage (data/images/)</div>
           <div class="module-row" style="flex-direction: column;">
             <div class="mod">avatars/<span class="file">character avatar PNGs</span></div>
-            <div class="mod">scenes/<span class="file">comic scene PNGs</span></div>
+            <div class="mod new">posters/<span class="file">generated story poster PNGs · v1.8</span></div>
+            <div class="mod new">inputs/<span class="file">user uploaded photo copies · v1.8</span></div>
           </div>
         </div>
       </div>
@@ -259,7 +264,8 @@
         <div class="layer-label">Frontend Utils</div>
         <div class="module-row">
           <div class="mod">imageUtils<span class="file">upload preview / format convert</span></div>
-          <div class="mod">posterGenerator<span class="file">Canvas grid poster · v1.4</span></div>
+          <div class="mod new">posterGenerator<span class="file">Canvas grid poster (export + auto-save artifact) · v1.8</span></div>
+          <div class="mod new">pdfGenerator<span class="file">Canvas CJK → JPEG → jsPDF · poster pages · v1.8</span></div>
           <div class="mod">types.ts<span class="file">Character, Scene (caption), StoryOutput (title)</span></div>
         </div>
       </div>
@@ -314,7 +320,7 @@
     <div class="section-title">Image Generation Flow (server/imageGenerator) - Backend</div>
     <div class="flow-box">
       <div style="background: #dcfce7; border: 1px solid #22c55e; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; color: #166534;">
-        <strong>v1.6 锚定帧策略</strong>：Scene 1（基准帧）仅用人物参考图生成 · Scene 2+ 统一参考 Scene 1，不再链式传递 · 避免漂移累积
+        <strong>v1.6 链式参考策略</strong>：Scene 1 仅用人物参考图生成 · Scene 2+ 以上一张已生成分镜图作为场景参考（链式传递），[风格参考帧] label 保持画风一致
       </div>
       <div class="flow-row">
         <div class="flow-item input">Scene Script (description)</div>
@@ -323,7 +329,7 @@
         <span class="flow-arrow">+</span>
         <div class="flow-item input">Character Refs (photo + avatar from DB)</div>
         <span class="flow-arrow">+</span>
-        <div class="flow-item input">Scene 1 Anchor Frame (Scene 2+ only)</div>
+        <div class="flow-item input">Previous Scene Image as [风格参考帧] (Scene 2+ only)</div>
       </div>
       <div style="text-align: center; color: #94a3b8; font-size: 16px; margin: 4px 0;">&darr;</div>
       <div class="flow-row" style="justify-content: center;">
@@ -333,7 +339,7 @@
         <span class="flow-arrow">&rarr;</span>
         <div class="flow-item backend">Save to disk (imageStorage)</div>
         <span class="flow-arrow">&rarr;</span>
-        <div class="flow-item output">Image URL (/api/images/scenes/xxx.png)</div>
+        <div class="flow-item output">Image URL (/api/images/scenes/uuid.png)</div>
       </div>
       <div style="text-align: center; color: #94a3b8; font-size: 16px; margin: 4px 0;">&darr; fail?</div>
       <div class="flow-row" style="justify-content: center;">
@@ -423,12 +429,14 @@
 App.tsx (dispatch)                      server/index.ts (Express :3001)
   ├── inputService ──→ apiClient        ├── routes/ai.ts ──→ inputAnalyzer ──→ gemini
   ├── storyService ──→ apiClient        ├── routes/ai.ts ──→ storyPipeline ──→ gemini
-  ├── imageService ──→ apiClient        │                      └── styleConfig
-  ├── characterService → apiClient      ├── routes/ai.ts ──→ imageGenerator ──→ gemini
-  │                        │            │                      ├── styleConfig
-  └── imageUtils           │            │                      └── imageStorage
-                           │            ├── routes/ai.ts ──→ characterAnalyzer → gemini
-              Vite proxy ──┘            │                      └── imageStorage
+  ├── imageService ──→ apiClient        │                      ├── styleConfig
+  ├── characterService → apiClient      │                      └── generateYearlySummary ──→ gemini [v1.7]
+  ├── GrowthAlbum [v1.7]               ├── routes/ai.ts ──→ imageGenerator ──→ gemini
+  │   └── pdfGenerator [v1.7]          │                      ├── styleConfig
+  │                        │            │                      └── imageStorage
+  └── imageUtils           │            ├── routes/ai.ts ──→ characterAnalyzer → gemini
+                           │            │                      └── imageStorage
+              Vite proxy ──┘            ├── routes/ai.ts ──→ generate-summary ──→ storyPipeline [v1.7]
               /api/* → :3001            ├── routes/characters ──→ db + characterAnalyzer
                                         ├── routes/stories ────→ db
                                         └── routes/images ─────→ data/images/ (static)
@@ -438,7 +446,7 @@ App.tsx (dispatch)                      server/index.ts (Express :3001)
 
   <!-- Section 7: Constraints -->
   <div class="section">
-    <div class="section-title">Constraints (Red Lines) - C01 ~ C38 <span style="background: #22c55e; color: white; font-size: 10px; padding: 2px 8px; border-radius: 4px; margin-left: 8px;">v1.6 +12 since v1.3</span></div>
+    <div class="section-title">Constraints (Red Lines) - C01 ~ C43 <span style="background: #22c55e; color: white; font-size: 10px; padding: 2px 8px; border-radius: 4px; margin-left: 8px;">v1.8 +5 since v1.7</span> <span style="background: #9ca3af; color: white; font-size: 10px; padding: 2px 8px; border-radius: 4px; margin-left: 4px;">C28/C32/C33 deleted</span></div>
     <div class="constraint-grid">
       <div class="constraint"><span class="constraint-id">C01</span> Backend env vars in .env (GEMINI_API_KEY), read via process.env</div>
       <div class="constraint"><span class="constraint-id">C02</span> Frontend: components &rarr; services &rarr; apiClient; no direct @google/genai import</div>
@@ -460,30 +468,35 @@ App.tsx (dispatch)                      server/index.ts (Express :3001)
       <div class="constraint"><span class="constraint-id">C18</span> On save, gender/age must write to character.description</div>
       <div class="constraint"><span class="constraint-id">C19</span> description format: "gender, ageGroup (specificAge), features..."</div>
       <div class="constraint new"><span class="constraint-id">C20</span> Frontend must NOT store or read API Key</div>
-      <div class="constraint new"><span class="constraint-id">C21</span> Images must be in data/images/{avatars|scenes}/ only</div>
+      <div class="constraint new"><span class="constraint-id">C21</span> Images must be in data/images/{avatars|posters|inputs}/ only (v1.8 updated)</div>
       <div class="constraint new"><span class="constraint-id">C22</span> All DB tables must have user_id field (NULL for now)</div>
       <div class="constraint new"><span class="constraint-id">C23</span> Frontend uses image URLs, no base64 Data URLs for storage</div>
       <div class="constraint new"><span class="constraint-id">C24</span> Backend API returns { success, data?, error? } format</div>
       <div class="constraint new"><span class="constraint-id">C25</span> Image filenames must be UUID (crypto.randomUUID())</div>
       <div class="constraint new"><span class="constraint-id">C26</span> Frontend services must NOT import @google/genai</div>
-      <div class="constraint new"><span class="constraint-id">C27</span> Auto-save (POST /api/stories) must trigger after generation, no manual save</div>
-      <div class="constraint new"><span class="constraint-id">C28</span> Scene edits debounce-sync to backend (PUT /api/stories/:id), 1s delay</div>
+      <div class="constraint new"><span class="constraint-id">C27</span> Show 「保存故事」button after generation (scenes.length &gt; 0 &amp;&amp; !isSaved); button disappears after save; no auto-save (v1.8)</div>
+      <div class="constraint deleted"><span class="constraint-id">C28</span> [已删除 v1.8] PUT debounce 逻辑已废除；不存在 PUT /api/stories/:id</div>
       <div class="constraint new"><span class="constraint-id">C29</span> Poster gen uses native Canvas API only, no html2canvas</div>
       <div class="constraint new"><span class="constraint-id">C30</span> Poster layout: 2-col grid, odd-last centered, watermark = "MangaGrow"</div>
       <div class="constraint new"><span class="constraint-id">C31</span> Title gen failure must NOT block main flow; fallback to input_summary[:10]</div>
-      <div class="constraint new"><span class="constraint-id">C32</span> HistoryPanel interaction must match CharacterLibrary (drawer, close btn, animation)</div>
-      <div class="constraint new"><span class="constraint-id">C33</span> Loaded history story must display identically to freshly generated story</div>
+      <div class="constraint deleted"><span class="constraint-id">C32</span> [已删除 v1.8] HistoryPanel 侧边栏约束已废除；改为全宽双栏主页面</div>
+      <div class="constraint deleted"><span class="constraint-id">C33</span> [已删除 v1.8] 历史故事加载到创作面板已废除；历史记录只读</div>
       <div class="constraint new"><span class="constraint-id">C34</span> Scene card shows caption below image; full script only in edit popup</div>
       <div class="constraint new"><span class="constraint-id">C35</span> Character quick-area auto-matches names in input text; empty text = no chars shown</div>
       <div class="constraint new"><span class="constraint-id">C36</span> Character avatar click must open library + navigate directly to detail view</div>
       <div class="constraint new"><span class="constraint-id">C37</span> Title gen runs parallel with Step 4 (Promise.all); frontend sets title before images start</div>
-      <div class="constraint new"><span class="constraint-id">C38</span> Scene 2+ must reference Scene 1 anchor frame (not previous scene); user-photo mode unchanged</div>
+      <div class="constraint new"><span class="constraint-id">C38</span> Scene 2+ 以上一张已生成分镜图作为场景参考（链式传递），[风格参考帧] prompt label 保持画风一致；有用户照片时每张用对应用户照片作参考</div>
+      <div class="constraint new"><span class="constraint-id">C39</span> PDF中文字符必须通过 Canvas fillText 渲染（使用系统字体）；禁止 jsPDF.text() 输出中文</div>
+      <div class="constraint new"><span class="constraint-id">C40</span> 年度总结 AI 生成失败时必须降级为固定文字（「这一段时间里，记录了 ${count} 个成长故事。」），不允许空白总结页或阻塞 PDF 生成</div>
+      <div class="constraint new"><span class="constraint-id">C41</span> 成长相册（isGrowthAlbumOpen）与历史记录主页面（isHistoryOpen）互斥，不允许同时显示</div>
+      <div class="constraint new"><span class="constraint-id">C42</span> 保存流程必须严格三步顺序：① posterGenerator.generatePoster() ② imageStorage.saveImage('posters'/'inputs') ③ POST /api/stories；任一步骤失败不得写入数据库</div>
+      <div class="constraint new"><span class="constraint-id">C43</span> HistoryPanel 必须为全宽双栏主页面：左栏 280px 固定宽故事列表 + 右栏 flex 只读详情（posterUrl/inputText/inputPhotos），不允许渲染任何编辑/重绘控件</div>
     </div>
   </div>
 
   <!-- Section 8: Main Data Flow -->
   <div class="section">
-    <div class="section-title">Main Data Flow (User clicks "Generate Comic") · v1.6</div>
+    <div class="section-title">Main Data Flow (User clicks "Generate Comic") · v1.8</div>
     <div class="flow-box" style="font-family: monospace; font-size: 12px; line-height: 2;">
       <pre style="display: inline-block; text-align: left; white-space: pre-wrap;">
 User Input (text / voice / photos)
@@ -507,25 +520,161 @@ User Input (text / voice / photos)
   ★ [Frontend] setStoryTitle(title) ←── 标题立即显示，图片尚未开始生成
         │
         ▼
-  [Sequential Image Generation · Anchor Frame Strategy]
+  [Sequential Image Generation · Chain Reference Strategy (v1.6)]
         │
-        ├─ HAS user photos ──▶ Promise.all: POST /api/ai/generate-image (parallel)
-        │     each scene uses its own user photo as reference
+        All generation is SERIAL (串行，一张完成再生成下一张)
         │
-        └─ NO user photos ──▶ Sequential (one by one)
-              Scene 1 (基准帧): character refs only → generates anchor frame
-              Scene 2+        : anchor frame (Scene 1) as ref → consistent, no drift
+        ├─ Scene 1: character refs only → first scene generated
+        │
+        └─ Scene 2+: previous generated scene as [风格参考帧] ref → chain consistency
+              有用户照片时: 同时附带对应用户照片作参考（仍为串行）
         │
         ▼
   [Backend imageGenerator] per call:
         ├─ Read character avatars from disk (via referenceCharIds → DB → file)
         ├─ Build prompt (styleConfig + 6-layer priority)
-        ├─ Scene ref label: "基准帧" for anchor (not "上一个分镜")
+        ├─ Chain ref label: [风格参考帧] for Scene 2+ (previous scene image)
         ├─ Call Gemini → save to data/images/scenes/ → return URL
         │
         ▼
   [Frontend] Update Scene: imageUrl = /api/images/scenes/xxx.png
+  ★ [v1.8] 所有分镜生成完成后显示「保存故事」按钮（scenes.length > 0 && !isSaved）
+           用户点击 → 触发三步保存流程（C42）：
+           ① posterGenerator.generatePoster() → 合成海报 Canvas → Blob
+           ② imageStorage.saveImage('posters') + saveImage('inputs', inputPhotos)
+           ③ POST /api/stories { title, poster_url, input_text, input_photos }
+           → 保存成功后按钮消失（isSaved = true）
       </pre>
+    </div>
+  </div>
+
+  <!-- Section 9: New Data Flows v1.8 -->
+  <div class="section">
+    <div class="section-title">New Data Flows · v1.8</div>
+
+    <!-- 手动保存流（v1.8 重构）-->
+    <div style="margin-bottom: 24px;">
+      <div style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #6d28d9;">① 手动保存故事（v1.8 重构：海报+原始输入）</div>
+      <div class="flow-box">
+        <div class="flow-row">
+          <div class="flow-item input">用户点击「保存故事」</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item service">Step①: posterGenerator.generatePoster(scenes, title)</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item output">Canvas → Blob (poster PNG)</div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-item service">Step②: imageStorage.saveImage('posters', posterBlob)</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item backend">POST /api/images/upload</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item output">poster_url = /api/images/posters/uuid.png</div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-item service">Step②b: imageStorage.saveImage('inputs', inputPhotos[])</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item output">input_photos = [/api/images/inputs/uuid.jpg, ...]</div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-item service">Step③: POST /api/stories</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item backend">{ title, poster_url, input_text, input_photos }</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item output">isSaved = true · 按钮消失</div>
+        </div>
+        <div style="margin-top: 10px; padding: 8px 12px; background: #fef3c7; border-radius: 6px; font-size: 11px; color: #92400e;">
+          <strong>C42</strong> 三步必须严格顺序执行；任一步失败不写入数据库 &nbsp;|&nbsp;
+          <strong>C27</strong> 保存后按钮消失；不存在 PUT /api/stories/:id（C28 已删除）
+        </div>
+      </div>
+    </div>
+
+    <!-- 历史记录浏览流（v1.8 双栏主页面）-->
+    <div style="margin-bottom: 24px;">
+      <div style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #6d28d9;">② 历史记录浏览（v1.8 全宽双栏主页面）</div>
+      <div class="flow-box">
+        <div class="flow-row">
+          <div class="flow-item input">点击导航「历史记录」图标</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item service">isHistoryOpen = true · isGrowthAlbumOpen = false（互斥）</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item backend">GET /api/stories</div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-item output">左栏 280px: 故事列表（标题 + 日期 + 缩略图）</div>
+          <span class="flow-arrow">|</span>
+          <div class="flow-item output">右栏 flex: 只读详情（posterUrl 大图 + inputText + inputPhotos）</div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-item input">点击左栏故事卡片</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item service">selectedStory 状态更新</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item output">右栏即时切换（无需关闭/打开）· 只读，无编辑控件</div>
+        </div>
+        <div style="margin-top: 10px; padding: 8px 12px; background: #fef3c7; border-radius: 6px; font-size: 11px; color: #92400e;">
+          <strong>C43</strong> 右栏只展示 posterUrl/inputText/inputPhotos，不允许渲染任何编辑/重绘控件
+        </div>
+      </div>
+    </div>
+
+    <!-- 成长相册浏览流（v1.8 只读详情）-->
+    <div style="margin-bottom: 24px;">
+      <div style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #6d28d9;">③ 成长相册浏览（v1.8 只读海报）</div>
+      <div class="flow-box">
+        <div class="flow-row">
+          <div class="flow-item input">点击导航「成长相册」图标</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item service">isGrowthAlbumOpen = true · isHistoryOpen = false（互斥）</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item backend">GET /api/stories（已有接口）</div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-item service">GrowthAlbum 客户端按年/月分组</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item output">时间轴展示（日期 + 海报缩略图 poster_url + 标题）</div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-item input">点击时间轴条目（setSelectedId）</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item backend">GET /api/stories/:id → StoryDetail</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item output">右栏展开只读详情（poster大图 + inputText + inputPhotos）· 不加载到创作面板</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PDF生成流（v1.8 海报页）-->
+    <div style="margin-bottom: 0;">
+      <div style="font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #6d28d9;">④ PDF 成长故事书生成（v1.8 海报页结构）</div>
+      <div class="flow-box">
+        <div class="flow-row">
+          <div class="flow-item input">选择日期范围（月/半年/一年/自定义）</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item service">客户端过滤故事列表（不新增 API）</div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-item service">点击「生成 PDF 故事书」</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item backend">POST /api/ai/generate-summary（stories titles + input_text）</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item output">300-500字总结文本（失败降级固定文字 C40）</div>
+        </div>
+        <div class="flow-row">
+          <div class="flow-item service">pdfGenerator.generateStoryBookPdf()</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item service">封面页 + 故事海报页（每故事一页，posterUrl 全页展示）</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item service">AI 阶段总结页（Canvas fillText 中文）</div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-item output">Blob → URL.createObjectURL → 自动下载</div>
+        </div>
+        <div style="margin-top: 10px; padding: 8px 12px; background: #fef3c7; border-radius: 6px; font-size: 11px; color: #92400e;">
+          <strong>C39</strong> 中文必须通过 Canvas fillText（系统字体）渲染，禁止 jsPDF.text() 输出中文 &nbsp;|&nbsp;
+          <strong>C40</strong> AI失败降级为固定文字，不抛错 &nbsp;|&nbsp;
+          <strong>v1.8</strong> AI总结输入改为 title + input_text（不再依赖 caption）
+        </div>
+      </div>
     </div>
   </div>
 

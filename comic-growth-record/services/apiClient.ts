@@ -101,15 +101,29 @@ export async function getStory(id: string): Promise<any> {
   return fetchApi<any>(`/stories/${id}`);
 }
 
-export async function updateStory(id: string, data: Record<string, any>): Promise<any> {
-  return fetchApi<any>(`/stories/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(data)
-  });
-}
-
 export async function deleteStory(id: string): Promise<void> {
   return fetchApi<void>(`/stories/${id}`, {
     method: 'DELETE'
   });
+}
+
+// === AI helpers ===
+
+export interface SummaryStoryItem {
+  title: string;
+  inputText: string;
+}
+
+/**
+ * Generate a yearly summary text from a list of story items.
+ * C40: Falls back to fixed text on any error — never rejects.
+ */
+export async function generateYearlySummary(stories: SummaryStoryItem[]): Promise<string> {
+  try {
+    const result = await postAi<{ summary: string }>('generate-summary', { stories });
+    return result.summary;
+  } catch (e) {
+    console.warn('[apiClient] generateYearlySummary failed, using fallback:', e);
+    return `这一段时间里，记录了 ${stories.length} 个成长故事。`;
+  }
 }

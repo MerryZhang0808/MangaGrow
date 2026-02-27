@@ -51,11 +51,11 @@ export async function generateSceneImage(params: SceneGenerationParams): Promise
     必须严格参考设定图的人物（${refCharNames.join('、')}）：面部轮廓、发型发色、服装颜色款式、配饰。
     ` : ''}
     - 人物的发型、发色、发长必须与参考图**完全一致**，禁止改变
-    - 服装必须使用参考图中**实际穿着的颜色和款式**，禁止自由发挥
     - 面部特征（眼睛、眉毛、脸型）必须与参考图一致
     - 如有眼镜、发卡等配饰，必须始终存在
+    - **服装规则**：若[3. 画面描述]中明确写出了服装（如"浅蓝色睡衣"、"格子衬衫"），则以描述中的服装为准（故事特定着装优先）；若描述中未提及服装，则以参考图的服装为准
     - 物品外观在不同分镜中必须保持相同
-    ⚠️ 优先级：参考图一致性 > 文字描述 > 美观度 > 创意性
+    ⚠️ 优先级：发型/面部以参考图为准 > 服装以场景描述为准（描述有则用描述，无则用参考图） > 美观度
 
     [2. 人物定义]
     ${params.characterContext || '无特定人物定义。'}
@@ -94,7 +94,7 @@ export async function generateSceneImage(params: SceneGenerationParams): Promise
         parts.push({ inlineData: { mimeType: sceneImg.mimeType, data: sceneImg.data } });
 
         if (!params.isUserPhoto) {
-          parts.push({ text: `[风格参考帧] 参考此帧的整体画风、线条风格、色调和漫画质感，保持视觉风格一致。如果本分镜出现不同角色，以各角色的专属参考图为准，不要照搬此帧的角色外观到新角色身上。` });
+          parts.push({ text: `[风格参考帧] 仅用于参考整体画风（线条风格、色调、漫画质感），保持风格连贯。⚠️ 此帧中角色的服装、发型、体型比例对本分镜**没有约束力**——各角色的外观（发型、发色、服装颜色款式、体型）必须以其各自的专属Q版头像参考图为唯一权威，严格按各自头像绘制，不得因本参考帧而改变。` });
         } else {
           parts.push({ text: `[用户参考照片] 请严格参考此图的构图、视角、背景环境、人物姿态，转绘为漫画风格。` });
         }

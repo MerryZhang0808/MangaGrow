@@ -1,10 +1,11 @@
 # Tasks - MangaGrow 漫画成长记录
 
 ## 概述
-共 34 个任务：1 个 POC 任务，33 个开发任务。
+共 39 个任务：1 个 POC 任务，38 个开发任务。
 T-01~T-23 已完成（基础模块拆分 + 核心管线 + 性能优化 + 人物库优化 + 后端迁移）。
-T-24~T-29 为 v1.4 功能增强任务（故事标题 + 自动保存 + 历史记录 + 网格海报导出）。
-T-30~T-33 为 v1.6 生成流程优化任务（标题提前 + 锚定帧 + 人物规则松绑 + 标题格式）。
+T-24~T-29 已完成（故事标题 + 自动保存 + 历史记录 + 网格海报导出）。
+T-30~T-33 已完成（标题提前 + 锚定帧 + 人物规则松绑 + 标题格式）。
+T-34~T-38 为 v1.7 新任务（手动保存改造 + 成长相册 + PDF 成长故事书）。
 POC-01 与开发任务独立，结果影响 T-05。
 
 ---
@@ -1051,10 +1052,347 @@ T-28 (导航栏 + DisplayPanel UI 更新) ──→ T-29
 
 ---
 
+### [T-34] 手动保存改造
+- **目的**：将「生成后自动保存」改为「生成后显示保存按钮，用户点击才保存」，避免废片堆积
+- **方案引用**：Architecture.md v1.7 → 手动保存确认技术方案 / 约束 C27 / C28
+- **修改文件**：
+  - `comic-growth-record/App.tsx`：移除生成完成后的自动 saveStory 调用；新增 `isSaved` / `saveStatus` 状态；「保存故事」点击处理函数；PUT debounce 增加 currentStoryId 判断
+  - `comic-growth-record/components/DisplayPanel.tsx`：新增「保存故事」按钮（底部浮动操作栏），更新保存状态指示（「未保存」/「保存中...」/「✅ 已保存」）
+- **实现要求**：
+  1. App.tsx 中删除 `handleGenerate` 末尾的 `apiClient.saveStory(...)` 调用
+  2. 新增 `saveStatus: 'unsaved' | 'saving' | 'saved'` 状态，生成完成时设为 `'unsaved'`
+  3. 新增 `handleSaveStory()` 函数：调用 `apiClient.saveStory(...)` → 设置 `currentStoryId` → `saveStatus = 'saved'`
+  4. PUT debounce 触发条件改为：`if (!currentStoryId) return;` 提前返回
+  5. DisplayPanel 底部操作栏：`saveStatus === 'unsaved'` 时显示「保存故事」按钮；`saveStatus === 'saving'` 时禁用按钮显示「保存中...」；`saveStatus === 'saved'` 时按钮消失
+  6. 顶部信息栏右侧：显示当前 `saveStatus` 对应的文字
+  7. 「新建创作」时重置：`saveStatus = 'unsaved'`，`currentStoryId = null`
+- **约束**：
+  - 必须遵守 C27（不自动保存，显示按钮）、C28（仅 currentStoryId !== null 时触发 PUT）
+- **验收标准**：
+  - [ ] 生成完成后，底部出现「保存故事」按钮，顶部显示「未保存」
+  - [ ] 点击「保存故事」：按钮变「保存中...」→ 成功后消失，顶部显示「✅ 已保存」
+  - [ ] 已保存故事修改后，1 秒自动同步（PUT）；未保存故事修改后不触发 PUT
+  - [ ] 新建创作后保存状态正确重置
+  - [ ] 无 TypeScript 错误
+- **依赖**：基于 T-29 已完成的代码
+- **状态**：✅ 已完成
+
+---
+
+### [T-35] 后端年度总结生成
+- **目的**：新增 AI 年度总结生成接口，供 PDF 生成调用
+- **方案引用**：Architecture.md v1.7 → storyPipeline.generateYearlySummary / PDF 技术方案
+- **修改文件**：
+  - `server/services/storyPipeline.ts`：新增导出函数 `generateYearlySummary(stories: SummaryStoryItem[]): Promise<string>`
+  - `server/routes/ai.ts`：新增 `POST /api/ai/generate-summary` 端点
+  - `server/types.ts`：新增 `SummaryStoryItem` 类型
+- **实现要求**：
+  1. `SummaryStoryItem` 类型：`{ title: string; date: string; captions: string[] }`
+  2. `generateYearlySummary(stories)` 实现：
+     - 将 stories 格式化为：`${date} - ${title}: ${captions.join('；')}` 逐行列出
+     - 调用 TEXT_MODEL，提示词要求 300-500 字温馨成长总结（串联故事，有情感流动）
+     - 使用 `responseMimeType: "text/plain"`
+     - 失败时 `throw error`（由路由层 catch，返回降级文字）
+  3. `POST /api/ai/generate-summary` 路由：
+     - 接收 `{ stories: SummaryStoryItem[] }`
+     - 调用 `generateYearlySummary(stories)`
+     - 成功：`{ success: true, data: { summary: string } }`
+     - 失败：`{ success: false, error: '...' }`（前端收到后使用降级文字）
+- **约束**：
+  - 必须遵守 C03（withRetry）、C04（模型常量）、C24（标准 JSON 响应）、C40（失败降级）
+- **验收标准**：
+  - [ ] `generateYearlySummary()` 导出，返回 300-500 字中文总结
+  - [ ] `POST /api/ai/generate-summary` 端点可正常访问
+  - [ ] 传入空 stories 或 AI 失败时端点返回 `{ success: false, error }` 而非 500
+  - [ ] 无 TypeScript 编译错误
+- **依赖**：基于 T-23（后端基础设施）
+- **状态**：✅ 已完成
+
+---
+
+### [T-36] 成长相册组件
+- **目的**：新增成长相册主页面组件，时间轴展示已保存故事，导航栏新增入口
+- **方案引用**：Architecture.md v1.7 → GrowthAlbum 组件 / 成长相册技术方案 / 成长相册浏览数据流
+- **新建文件**：
+  - `comic-growth-record/components/GrowthAlbum.tsx`：成长相册主页面
+- **修改文件**：
+  - `comic-growth-record/App.tsx`：新增 `isGrowthAlbumOpen` 状态、导航栏成长相册图标、GrowthAlbum 集成
+- **实现要求**：
+  1. GrowthAlbum 组件：
+     - Props：`{ isOpen, onClose, onSelectStory, characters }`
+     - `isOpen = true` 时替换主内容区（绝对定位覆盖，或条件渲染替换中间+右侧区域）
+     - 挂载时调用 `apiClient.getStories()` 获取全量列表
+     - Client-side 分组逻辑：
+       ```typescript
+       const grouped = new Map<number, StorySummary[]>(); // key = 年份
+       stories.forEach(s => {
+         const year = new Date(s.createdAt).getFullYear();
+         if (!grouped.has(year)) grouped.set(year, []);
+         grouped.get(year)!.push(s);
+       });
+       // 按年份倒序排列，每年内按 createdAt 倒序
+       ```
+     - 渲染：年份标题行（如「2026 年」） + 故事卡片列表（日期 + 封面图 + 标题）
+     - 点击故事卡片 → `onSelectStory(story.id)` + `onClose()`
+     - 空状态：「还没有保存的故事，去创作第一个吧！」
+     - 右上角「生成 PDF 故事书」按钮（点击打开 PDF 配置面板，T-37 实现）
+  2. App.tsx 集成：
+     - 新增 `isGrowthAlbumOpen: boolean` 状态
+     - 导航栏中部新增成长相册图标（BookOpen 或 Album，lucide-react），顺序：人物库 → 历史记录 → 成长相册 → 新创作
+     - `isGrowthAlbumOpen = true` 时，`isHistoryOpen` 强制 false（互斥）
+- **约束**：
+  - 必须遵守 C41（与 HistoryPanel 互斥）
+  - 成长相册页面整体交互风格与已有侧边栏保持一致（图标、关闭方式）
+- **验收标准**：
+  - [ ] 导航栏新增成长相册图标，点击打开相册页面
+  - [ ] 时间轴按年份分组，故事卡片显示日期 + 封面图 + 标题
+  - [ ] 点击故事卡片关闭相册，在主界面加载该故事
+  - [ ] 成长相册和历史侧边栏互斥（打开一个时另一个关闭）
+  - [ ] 空状态正确显示
+  - [ ] 无 TypeScript 错误
+- **依赖**：依赖 T-34（保存逻辑就绪，确保相册中有数据）
+- **状态**：✅ 已完成
+
+---
+
+### [T-37] PDF 成长故事书生成
+- **目的**：在成长相册中新增 PDF 日期范围配置面板和 PDF 生成功能
+- **方案引用**：Architecture.md v1.7 → pdfGenerator 模块 / PDF 技术方案 / PDF 生成数据流
+- **新建文件**：
+  - `comic-growth-record/utils/pdfGenerator.ts`：Canvas 分页渲染 + jsPDF 拼合
+- **修改文件**：
+  - `comic-growth-record/components/GrowthAlbum.tsx`：新增 PDF 日期范围面板
+  - `comic-growth-record/services/apiClient.ts`：新增 `generateYearlySummary()` 方法
+- **安装依赖**：`npm install jspdf`（前端 comic-growth-record/package.json）
+- **实现要求**：
+  1. GrowthAlbum 内 PDF 配置面板：
+     - 日期范围预设按钮（横向单选）：「最近一个月」「最近半年」「最近一年」「自定义」
+     - 「自定义」时显示 from/to 日期选择器
+     - 实时统计并显示「已选 X 个故事」
+     - 「生成 PDF」按钮（生成中禁用 + loading 提示）
+  2. apiClient 新增：
+     - `generateYearlySummary(stories: SummaryStoryItem[]): Promise<string>`
+     - 失败时返回降级文字（catch → 返回 `这一段时间里，记录了 ${stories.length} 个成长故事。`）
+  3. pdfGenerator 实现：
+     - `generateStoryBookPdf(options: StoryBookOptions): Promise<Blob>`
+     - 所有文字使用 Canvas fillText（系统字体，支持中文），Canvas 转 JPEG 后嵌入 jsPDF
+     - **封面页 Canvas**（794×1123px）：居中显示 characterName（大字）+ dateLabel（小字）+ MangaGrow 品牌
+     - **故事页 Canvas**（同尺寸）：标题 + 日期 + 2 列分镜网格（复用 posterGenerator 的排版常量）
+     - **总结页 Canvas**：「成长记录」标题 + yearlySummary 文字（wrapText 换行，每行高度 28px）
+     - jsPDF 拼合：封面 → addPage → 各故事页 → addPage → 总结页
+     - `jsPDF.output('blob')` 返回 Blob
+  4. 下载触发：
+     ```typescript
+     const url = URL.createObjectURL(blob);
+     const a = document.createElement('a');
+     a.href = url; a.download = `成长故事书_${dateLabel}.pdf`;
+     a.click(); URL.revokeObjectURL(url);
+     ```
+- **约束**：
+  - 必须遵守 C39（中文用 Canvas fillText，不用 jsPDF.text）、C40（年度总结降级）
+  - jsPDF 仅在此文件中引入，不允许在其他地方使用
+- **验收标准**：
+  - [ ] PDF 日期范围面板正常工作（预设 + 自定义，实时显示故事数）
+  - [ ] 生成的 PDF 包含封面页 + 故事页 + 总结页
+  - [ ] 中文字符在 PDF 中正确显示（无乱码）
+  - [ ] 分镜图片正确嵌入 PDF
+  - [ ] 年度总结 AI 失败时降级为固定文字，PDF 仍可生成
+  - [ ] 下载文件名格式正确
+  - [ ] 无 TypeScript 错误
+- **依赖**：依赖 T-35（后端年度总结 API）、T-36（成长相册组件）
+- **状态**：✅ 已完成
+
+---
+
+### [T-38] v1.7 集成验证 + 文档同步
+- **目的**：端到端验证 v1.7 三项功能，同步约束文档和架构图
+- **方案引用**：Architecture.md v1.7 → 约束 C27/C28/C39/C40/C41 / 约束 C15
+- **修改文件**：
+  - `.claude/rules/dev-constraints.md`：同步 Architecture.md v1.7 约束 C27（更新）、C28（更新）、C39/C40/C41（新增）
+  - `architecture-diagram.html`：新增 GrowthAlbum 组件、pdfGenerator 工具、generateYearlySummary 接口、手动保存数据流
+- **实现要求**：
+  1. 端到端测试：
+     - 生成漫画 → 确认无自动保存（数据库故事数不增加）→ 点击「保存故事」→ 验证数据库新增记录
+     - 未保存时编辑脚本 → 确认无 PUT 请求发出
+     - 已保存时编辑脚本 → 确认 1 秒后 PUT 请求发出
+     - 打开成长相册 → 确认时间轴按年分组正确
+     - 生成 PDF（选 1 个月范围）→ 验证 PDF 可打开、中文显示正常、内容结构正确
+     - 年度总结 AI 降级测试（模拟后端失败）→ 确认 PDF 仍可生成（使用固定文字）
+  2. dev-constraints.md 更新 C27/C28，新增 C39/C40/C41
+  3. architecture-diagram.html 更新（反映 v1.7 架构）
+- **验收标准**：
+  - [ ] 所有端到端测试通过
+  - [ ] dev-constraints.md 与 Architecture.md 约束清单一致（C01-C41）
+  - [ ] architecture-diagram.html 反映 v1.7 架构
+  - [ ] TypeScript 编译无错误（前后端）
+  - [ ] `npm run dev` 正常启动，无错误
+- **依赖**：依赖 T-34, T-35, T-36, T-37
+- **状态**：✅ 已完成（端到端测试待人工验证）
+
+---
+
+### [T-39] v1.8 DB Schema 迁移 + imageStorage 更新
+- **目的**：删除 scenes 表，更新 stories 表结构，imageStorage 支持 posters/inputs 目录
+- **方案引用**：Architecture.md v1.8 → DB Schema / imageStorage 模块
+- **修改文件**：
+  - `server/db/schema.ts`：删除 scenes 表建表语句；stories 表新增 input_text/input_photos/poster_url 列；迁移逻辑（ALTER TABLE ADD COLUMN）
+  - `server/services/imageStorage.ts`：type 参数从 `'avatars'|'scenes'` 改为 `'avatars'|'posters'|'inputs'`；ensureDirectories 新增 posters/ 和 inputs/ 目录
+  - `server/types.ts`：Story/StorySummary 类型更新（新增 posterUrl/inputText/inputPhotos，删除 scenes 相关）
+- **实现要求**：
+  1. schema.ts：删除 `CREATE TABLE IF NOT EXISTS scenes` 语句；stories 表 ALTER TABLE 新增三列；保留现有 characters 表不变
+  2. imageStorage.ts：saveImage type 联合类型更新；ensureDirectories 创建三个目录
+  3. server/types.ts：Story 接口新增 posterUrl、inputText、inputPhotos 字段；删除 Scene 类型
+- **约束**：C21（目录类型更新）、C22（保留 user_id）
+- **验收标准**：
+  - [ ] schema.ts 中无 scenes 表定义
+  - [ ] stories 表有 input_text、input_photos、poster_url 列
+  - [ ] imageStorage.saveImage 接受 'posters' 和 'inputs' 类型
+  - [ ] data/images/posters/ 和 data/images/inputs/ 目录自动创建
+  - [ ] TypeScript 编译无错误
+- **依赖**：无
+- **状态**：✅ 已完成
+
+---
+
+### [T-40] 后端 stories 路由重构（保存 + 删除 + 详情）
+- **目的**：更新 POST /api/stories 接受海报/照片，删除 PUT /api/stories/:id，DELETE 级联删除文件
+- **方案引用**：Architecture.md v1.8 → 手动保存确认方案 / C42
+- **修改文件**：
+  - `server/routes/stories.ts`：POST 路由接收新字段；删除 PUT 路由；DELETE 路由补充磁盘文件删除
+- **实现要求**：
+  1. `POST /api/stories`：接收 `{ title, input_text, input_photos: string[], poster_base64, style }`；调用 imageStorage.saveImage('posters', poster_base64) 得到 poster_url；遍历 input_photos 调用 imageStorage.saveImage('inputs', ...) 得到路径数组；将 input_photos 路径数组 JSON.stringify 后存入 DB
+  2. 删除 `PUT /api/stories/:id` 路由（整个路由块删除）
+  3. `DELETE /api/stories/:id`：查询故事的 poster_url 和 input_photos，调用 imageStorage.deleteImage 逐一删除文件，再删除 DB 记录
+  4. `GET /api/stories/:id`：返回 posterUrl、inputText、inputPhotos（JSON.parse 还原为数组）
+- **约束**：C24（标准 JSON 响应）、C42（三步顺序）
+- **验收标准**：
+  - [ ] POST /api/stories 正确写入 poster_url/input_text/input_photos
+  - [ ] PUT /api/stories/:id 路由不存在（返回 404）
+  - [ ] DELETE /api/stories/:id 同步删除磁盘文件
+  - [ ] GET /api/stories/:id 返回新字段
+  - [ ] TypeScript 编译无错误
+- **依赖**：T-39
+- **状态**：✅ 已完成
+
+---
+
+### [T-41] 前端 App.tsx 保存流程重构
+- **目的**：保存时先 generatePoster → 上传 → POST，移除 debounce PUT 同步逻辑
+- **方案引用**：Architecture.md v1.8 → 手动保存确认方案 / C27 / C42
+- **修改文件**：
+  - `comic-growth-record/App.tsx`：handleSaveStory 重写；移除 debouncedSync/syncScenes；状态从 currentStoryId + saveStatus 简化为 isSaved
+  - `comic-growth-record/services/apiClient.ts`：saveStory body 更新（新字段）；删除 updateStory 方法
+- **实现要求**：
+  1. handleSaveStory：① 调用 posterGenerator.generatePoster(scenes, { title, date }) 得到 Blob → 转 base64 ② 收集 inputPhotos（用户上传的照片 base64）③ 调用 apiClient.saveStory({ title, input_text, input_photos, poster_base64, style }) ④ 成功后 setIsSaved(true)
+  2. 移除所有 debouncedSync、syncScenes、handleTitleChange 中的 PUT 调用
+  3. 移除 currentStoryId 状态（不再需要 storyId 来判断 PUT）；改用 isSaved: boolean
+  4. apiClient.saveStory 参数类型更新；删除 updateStory 方法
+- **约束**：C27（按钮显示条件）、C42（三步顺序）
+- **验收标准**：
+  - [ ] 点击「保存故事」先生成海报再 POST，无 PUT 调用
+  - [ ] 保存中显示「保存中...」，成功后「✅ 已保存」
+  - [ ] 代码中无 debouncedSync/syncScenes/updateStory 引用
+  - [ ] TypeScript 编译无错误
+- **依赖**：T-40
+- **状态**：✅ 已完成
+
+---
+
+### [T-42] HistoryPanel 重构为双栏主页面
+- **目的**：将历史记录从侧边栏改为全宽双栏主页面（左列表 + 右只读详情）
+- **方案引用**：Architecture.md v1.8 → HistoryPanel 技术方案 / C43
+- **修改文件**：
+  - `comic-growth-record/components/HistoryPanel.tsx`：整体重构
+  - `comic-growth-record/App.tsx`：HistoryPanel 的 props 和渲染位置调整（从侧边栏叠加改为主内容区替换）
+- **实现要求**：
+  1. HistoryPanel 改为 isOpen 时替换主内容区（与 GrowthAlbum 同级）
+  2. 左栏（280px 固定宽，垂直滚动）：故事列表卡片（海报缩略图 + 标题 + 日期）；点击卡片设置 selectedStoryId
+  3. 右栏（flex）：展示选中故事详情——海报大图 + input_text + input_photos（若有）；右上角「删除」图标
+  4. 进入时默认选中第一条（最新）；删除后自动选中相邻条
+  5. 移除 onSelectStory prop（不再加载到创作面板）
+  6. 右栏严格只读，无任何编辑/重绘控件
+- **约束**：C41（与 GrowthAlbum 互斥）、C43（双栏只读）
+- **验收标准**：
+  - [ ] 历史记录页面为双栏布局（左 280px + 右 flex）
+  - [ ] 点击左栏卡片右栏即时切换，无需翻页
+  - [ ] 右栏展示海报大图 + 原始输入文字 + 原始照片（若有）
+  - [ ] 右栏无任何编辑/重绘控件
+  - [ ] 删除功能正常（确认弹窗 + 级联删除磁盘文件）
+  - [ ] TypeScript 编译无错误
+- **依赖**：T-40、T-41
+- **状态**：✅ 已完成
+
+---
+
+### [T-43] GrowthAlbum + pdfGenerator v1.8 更新
+- **目的**：相册缩略图改为 posterUrl；点击展开只读详情；PDF 故事页改为海报全页
+- **方案引用**：Architecture.md v1.8 → GrowthAlbum 组件 / pdfGenerator 模块
+- **修改文件**：
+  - `comic-growth-record/components/GrowthAlbum.tsx`：缩略图 + 点击行为 + 详情展示 + PDF 触发参数
+  - `comic-growth-record/utils/pdfGenerator.ts`：StoryBookOptions 类型 + 故事页渲染逻辑
+- **实现要求**：
+  1. GrowthAlbum：故事卡片缩略图改为 story.posterUrl；点击卡片设置 selectedStoryId（展开只读详情），不调用 onSelectStory；移除 onSelectStory prop
+  2. GrowthAlbum 详情视图：海报大图 + inputText + inputPhotos（右侧内联展示）
+  3. GrowthAlbum PDF 触发：generateYearlySummary 参数改为 `{ title, inputText }` 数组（不再传 captions）
+  4. pdfGenerator StoryBookOptions：删除 scenes 字段，新增 posterUrl/inputText；故事页从分镜网格改为海报全页（fetch posterUrl → Canvas drawImage 全铺 + 标题日期叠加）
+- **约束**：C39（中文 Canvas）、C40（总结降级）
+- **验收标准**：
+  - [ ] 相册卡片缩略图显示海报图
+  - [ ] 点击卡片在相册内展开只读详情，不关闭相册
+  - [ ] PDF 故事页为海报全页（非分镜网格）
+  - [ ] PDF 中文正常显示
+  - [ ] AI 总结降级正常
+  - [ ] TypeScript 编译无错误
+- **依赖**：T-39、T-40
+- **状态**：✅ 已完成
+
+---
+
+### [T-44] v1.8 集成验证 + 文档同步
+- **目的**：端到端验证 v1.8 全部功能，同步约束文档和架构图
+- **方案引用**：Architecture.md v1.8 → C15（架构图同步）
+- **修改文件**：
+  - `.claude/rules/dev-constraints.md`：同步 C21/C27 更新，删除 C28/C32/C33，C41 更新，新增 C42/C43
+  - `architecture-diagram.html`：反映 v1.8 架构（双栏历史、海报存储、无 scenes 表）
+- **实现要求**：
+  1. 端到端测试：
+     - 生成漫画 → 点击「保存故事」→ 确认 posters/ 目录新增文件，DB stories 表有 poster_url
+     - 打开历史记录 → 确认双栏布局，点击卡片右栏切换
+     - 历史详情确认展示海报 + 原始输入文字
+     - 删除故事 → 确认 DB 记录删除 + 磁盘文件删除
+     - 成长相册缩略图为海报图
+     - 生成 PDF → 确认故事页为海报全页、中文正常、总结页存在
+  2. dev-constraints.md 同步更新
+  3. architecture-diagram.html 更新
+- **验收标准**：
+  - [ ] 所有端到端测试通过
+  - [ ] dev-constraints.md 与 Architecture.md v1.8 约束一致（C01-C43，C28/C32/C33 标废除）
+  - [ ] architecture-diagram.html 反映 v1.8 架构
+  - [ ] TypeScript 编译无错误（前后端）
+- **依赖**：T-41、T-42、T-43
+- **状态**：✅ 已完成
+
+---
+
+### [FIX-03] 清理 storyService.ts 中孤立的 generateTitle export（违反 T-30 验收标准）
+- **问题**：T-30 要求 `generateTitle` 不再从 storyService.ts export（成为内部函数），但当前 storyService.ts 仍然 export `generateTitle` 函数，且该函数调用一个不存在的 `/api/ai/generate-title` 端点（后端已删除此路由）
+- **涉及文件**：`comic-growth-record/services/storyService.ts`
+- **修复方式**：删除 storyService.ts 中的 `generateTitle` 导出函数（共 9 行），因为标题现在通过 `storyResult.title` 从 generateStory 返回
+- **约束**：C37（标题随 StoryOutput 返回）
+- **验收标准**：
+  - [ ] storyService.ts 中不再有 generateTitle export
+  - [ ] TypeScript 编译无错误（无悬空 import 引用）
+- **依赖**：无
+- **状态**：✅ 已完成
+- **优先级**：P1
+
+---
+
 ## 变更记录
 
 | 日期 | 触发来源 | 变更内容 | 受影响任务 |
 |------|---------|---------|-----------|
+| 2026-02-27 | Architecture v1.8（存储重构 + 历史双栏） | 新增 T-39~T-44；T-34/T-36/T-37 标记受影响（已完成任务不重做，由新任务覆盖） | T-34⚠️, T-36⚠️, T-37⚠️, T-39~T-44 |
 | 2026-02-09 | Architecture v1.0 | 初始任务拆分 | 全部 |
 | 2026-02-10 | Phase 1-5 执行完成 | T-01~T-10 全部完成，geminiService.ts 已删除 | 全部 |
 | 2026-02-10 | Architecture v1.1（性能优化） | 新增 T-11（故事管线4步化）、T-12（图片条件并行）；T-04、T-07 标记 ⚠️ | T-04, T-07, T-11, T-12 |

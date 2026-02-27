@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Scene, ComicStyle, AspectRatio, KeyObject, Character } from '../types';
 import { Button } from './Button';
-import { RefreshCw, Download, Edit2, ChevronDown, Check, Loader2, ImagePlus } from 'lucide-react';
+import { RefreshCw, Download, Edit2, ChevronDown, Check, Loader2, ImagePlus, Bookmark } from 'lucide-react';
 import JSZip from 'jszip';
 import saveAs from 'file-saver';
 import { generateSceneImage } from '../services/imageService';
@@ -22,15 +22,16 @@ interface DisplayPanelProps {
   onReset: () => void;
   storyTitle?: string;
   onTitleChange?: (title: string) => void;
-  saveStatus?: 'idle' | 'saving' | 'saved';
+  saveStatus?: 'unsaved' | 'saving' | 'saved';
   storyCreatedAt?: number | null;
   onScenesChange?: (scenes: Scene[]) => void;
+  onSaveStory?: () => void;
 }
 
 export const DisplayPanel: React.FC<DisplayPanelProps> = ({
   scenes, setScenes, keyObjects, storyCharacters, libraryCharacters = [], inputImages = [],
   isGenerating, generationStage = "", style, ratio, onReset,
-  storyTitle = '', onTitleChange, saveStatus = 'idle', storyCreatedAt, onScenesChange
+  storyTitle = '', onTitleChange, saveStatus = 'unsaved', storyCreatedAt, onScenesChange, onSaveStory
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editScript, setEditScript] = useState("");
@@ -326,6 +327,9 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
                   {formatDate(storyCreatedAt)}
                 </span>
               )}
+              {saveStatus === 'unsaved' && (
+                <span className="text-sm text-gray-400">未保存</span>
+              )}
               {saveStatus === 'saving' && (
                 <span className="flex items-center gap-1 text-sm text-gray-400">
                   <Loader2 size={14} className="animate-spin" /> 保存中...
@@ -429,6 +433,21 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
       {/* Floating Action Bar */}
       {scenes.length > 0 && (
         <div className="fixed bottom-6 right-6 flex gap-3 z-50">
+           {/* C27: 保存故事按钮 — 仅在未保存时显示 */}
+           {(saveStatus === 'unsaved' || saveStatus === 'saving') && (
+             <Button
+               onClick={onSaveStory}
+               disabled={saveStatus === 'saving' || !onSaveStory}
+               className="shadow-xl border-2 border-white bg-green-600 hover:bg-green-700 text-white"
+             >
+               {saveStatus === 'saving' ? (
+                 <Loader2 size={18} className="mr-2 animate-spin" />
+               ) : (
+                 <Bookmark size={18} className="mr-2" />
+               )}
+               {saveStatus === 'saving' ? '保存中...' : '保存故事'}
+             </Button>
+           )}
            {hasPendingScenes && (
              <Button
                onClick={handleContinueGenerate}

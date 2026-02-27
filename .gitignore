@@ -12,12 +12,12 @@ comic-growth-record/dist/
 .env.*.local
 
 # Database
-server/data/*.db
-server/data/*.db-shm
-server/data/*.db-wal
+data/*.db
+data/*.db-shm
+data/*.db-wal
 
 # Generated images (large binary files)
-server/data/images/
+data/images/
 
 # OS
 .DS_Store
