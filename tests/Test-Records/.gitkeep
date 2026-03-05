@@ -1,0 +1,2 @@
+# This file ensures the Test-Records directory is tracked by git
+# Test execution records will be saved as: YYYY-MM-DD-vX.X.md

@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MangaGrow SDD 工作流总览</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e3350;
+      --accent: #7c6bff;
+      --accent2: #4ecdc4;
+      --accent3: #ff6b9d;
+      --accent4: #ffd93d;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #fbbf24;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      line-height: 1.7;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    .header {
+      text-align: center;
+      margin-bottom: 60px;
+      padding: 40px;
+      background: linear-gradient(135deg, #1a1d27 0%, #22263a 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .header::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(circle at 30% 40%, rgba(124,107,255,0.08) 0%, transparent 50%),
+                  radial-gradient(circle at 70% 60%, rgba(78,205,196,0.06) 0%, transparent 50%);
+      pointer-events: none;
+    }
+    .header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+    }
+    .header p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    /* Section */
+    .section {
+      margin-bottom: 48px;
+    }
+    .section-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--accent2);
+      margin-bottom: 20px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title span.num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      font-size: 0.85rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    /* Code / Diagram blocks */
+    pre {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 0.82rem;
+      line-height: 1.65;
+      color: #c9d1e0;
+      overflow-x: auto;
+      margin-bottom: 16px;
+    }
+
+    /* Pipeline */
+    .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin-bottom: 20px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .pipeline-step {
+      flex: 1;
+      min-width: 120px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0;
+      padding: 16px 12px;
+      text-align: center;
+      position: relative;
+    }
+    .pipeline-step:first-child { border-radius: 10px 0 0 10px; }
+    .pipeline-step:last-child  { border-radius: 0 10px 10px 0; }
+    .pipeline-step + .pipeline-step { border-left: none; }
+    .pipeline-step::after {
+      content: '→';
+      position: absolute;
+      right: -10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--accent);
+      font-size: 1.1rem;
+      z-index: 2;
+    }
+    .pipeline-step:last-child::after { display: none; }
+    .pipeline-step .layer-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .pipeline-step .layer-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .pipeline-step .layer-output {
+      font-size: 0.72rem;
+      color: var(--accent2);
+      font-family: monospace;
+    }
+    .pipeline-step.l1 { border-top: 3px solid #7c6bff; }
+    .pipeline-step.l2 { border-top: 3px solid #4ecdc4; }
+    .pipeline-step.l3 { border-top: 3px solid #ffd93d; }
+    .pipeline-step.l4 { border-top: 3px solid #4ade80; }
+    .pipeline-step.l5 { border-top: 3px solid #f87171; }
+
+    /* Skill cards */
+    .skill-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 640px) { .skill-grid { grid-template-columns: 1fr; } }
+
+    .skill-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .skill-card.full { grid-column: 1 / -1; }
+    .skill-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .skill-icon {
+      font-size: 1.4rem;
+      width: 36px;
+      text-align: center;
+    }
+    .skill-name {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: var(--text);
+    }
+    .skill-role {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .io-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 8px;
+      align-items: start;
+      font-size: 0.8rem;
+    }
+    .io-box {
+      background: var(--surface2);
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .io-box .io-label {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+    .io-box .io-item {
+      font-family: monospace;
+      font-size: 0.78rem;
+      color: var(--accent2);
+      line-height: 1.5;
+    }
+    .io-arrow {
+      color: var(--accent);
+      font-size: 1.1rem;
+      padding-top: 16px;
+      text-align: center;
+    }
+    .trigger-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 0.7rem;
+      margin-top: 8px;
+    }
+    .trigger-auto { background: rgba(124,107,255,0.15); color: var(--accent); border: 1px solid rgba(124,107,255,0.3); }
+    .trigger-manual { background: rgba(78,205,196,0.15); color: var(--accent2); border: 1px solid rgba(78,205,196,0.3); }
+
+    /* Constraints table */
+    .constraint-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 640px) { .constraint-grid { grid-template-columns: 1fr; } }
+    .constraint-group {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .constraint-group h4 {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--accent4);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .constraint-item {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      padding: 3px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      display: flex;
+      gap: 6px;
+    }
+    .constraint-item:last-child { border-bottom: none; }
+    .constraint-item code {
+      color: var(--red);
+      font-family: monospace;
+      flex-shrink: 0;
+    }
+
+    /* Summary table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    th {
+      background: var(--surface2);
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      vertical-align: top;
+    }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    td:first-child { font-family: monospace; color: var(--accent2); font-size: 0.8rem; }
+    td:nth-child(2) { color: var(--accent4); font-weight: 600; }
+    td:nth-child(3) { color: var(--text-muted); }
+
+    /* Flow diagram */
+    .flow {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+
+    /* Tags */
+    .tag {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-family: monospace;
+    }
+    .tag-file { background: rgba(78,205,196,0.12); color: var(--accent2); }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>MangaGrow SDD 工作流总览</h1>
+    <p>Spec-Driven Development — 5 层流水线：需求 → 架构 → 任务 → 代码 → 验证</p>
+  </div>
+
+  <!-- Section 1: 整体流水线 -->
+  <div class="section">
+    <div class="section-title"><span class="num">1</span> 整体架构：5 层流水线</div>
+
+    <div class="pipeline">
+      <div class="pipeline-step l1">
+        <div class="layer-label">Layer 1</div>
+        <div class="layer-name">需求</div>
+        <div class="layer-output">Product-Spec.md</div>
+      </div>
+      <div class="pipeline-step l2">
+        <div class="layer-label">Layer 2</div>
+        <div class="layer-name">架构设计</div>
+        <div class="layer-output">Architecture.md</div>
+      </div>
+      <div class="pipeline-step l3">
+        <div class="layer-label">Layer 3</div>
+        <div class="layer-name">任务拆分</div>
+        <div class="layer-output">Tasks.md</div>
+      </div>
+      <div class="pipeline-step l4">
+        <div class="layer-label">Layer 4</div>
+        <div class="layer-name">代码实现</div>
+        <div class="layer-output">源代码</div>
+      </div>
+      <div class="pipeline-step l5">
+        <div class="layer-label">Layer 5</div>
+        <div class="layer-name">质量验证</div>
+        <div class="layer-output">QA-Report.md</div>
+      </div>
+    </div>
+
+    <div class="flow">
+      <pre style="background:transparent;border:none;padding:0;margin:0;">CLAUDE.md（协调者 Merry）
+├── 守门员：确保 5 层按顺序走，不允许跳步
+├── 检测项目状态，路由到正确 skill
+│
+├── 自动触发 ──→ product-spec-builder（用户描述需求时）
+├── 自动触发 ──→ architect（Product-Spec.md 更新后 / /arch）
+├── 手动触发 ──→ coder（/code 或 /code T-XX）
+└── 手动触发 ──→ qa（/qa）
+
+直接改代码（bug修复/小样式）可跳过 Layer 1-3，但必须遵守 Architecture.md 约束</pre>
+    </div>
+  </div>
+
+  <!-- Section 2: Skill 详解 -->
+  <div class="section">
+    <div class="section-title"><span class="num">2</span> 各 Skill 职责与输入输出</div>
+
+    <div class="skill-grid">
+
+      <!-- product-spec-builder -->
+      <div class="skill-card">
+        <div class="skill-card-header">
+          <div class="skill-icon">📋</div>
+          <div>
+            <div class="skill-name">product-spec-builder</div>
+            <div class="skill-role">废才 PM — 需求收集师</div>
+          </div>
+        </div>
+        <div class="io-row">
+          <div class="io-box">
+            <div class="io-label">输入</div>
+            <div class="io-item">用户脑子里的想法<br>模糊的产品描述<br>迭代修改需求</div>
+          </div>
+          <div class="io-arrow">→</div>
+          <div class="io-box">
+            <div class="io-label">输出</div>
+            <div class="io-item">Product-Spec.md<br>CHANGELOG.md</div>
+          </div>
+        </div>
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:10px;">
+          <strong style="color:var(--text)">两种模式：</strong><br>
+          0-1 模式：从零建立 Spec<br>
+          迭代模式：在已有 Spec 上修改，自动记录变更
+        </div>
+        <div><span class="trigger-badge trigger-auto">自动触发</span></div>
+      </div>
+
+      <!-- architect -->
+      <div class="skill-card">
+        <div class="skill-card-header">
+          <div class="skill-icon">🏗️</div>
+          <div>
+            <div class="skill-name">architect</div>
+            <div class="skill-role">首席架构师 — 技术决策者</div>
+          </div>
+        </div>
+        <div class="io-row">
+          <div class="io-box">
+            <div class="io-label">输入</div>
+            <div class="io-item">Product-Spec.md<br>（已有Architecture.md）</div>
+          </div>
+          <div class="io-arrow">→</div>
+          <div class="io-box">
+            <div class="io-label">输出</div>
+            <div class="io-item">Architecture.md<br>Tasks.md<br>dev-constraints.md<br>arch-diagram.html</div>
+          </div>
+        </div>
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:10px;">
+          把 Product Spec 里的功能，转化为 Claude Code<br>
+          <strong style="color:var(--accent)">无法自由发挥</strong> 的技术约束施工图纸
+        </div>
+        <div><span class="trigger-badge trigger-auto">自动触发 / /arch</span></div>
+      </div>
+
+      <!-- coder -->
+      <div class="skill-card">
+        <div class="skill-card-header">
+          <div class="skill-icon">🔨</div>
+          <div>
+            <div class="skill-name">coder</div>
+            <div class="skill-role">施工队长 — 只执行不决策</div>
+          </div>
+        </div>
+        <div class="io-row">
+          <div class="io-box">
+            <div class="io-label">输入</div>
+            <div class="io-item">Tasks.md（⬜任务）<br>Architecture.md<br>dev-constraints.md</div>
+          </div>
+          <div class="io-arrow">→</div>
+          <div class="io-box">
+            <div class="io-label">输出</div>
+            <div class="io-item">修改后的源代码<br>Tasks.md（✅更新）</div>
+          </div>
+        </div>
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:10px;">
+          4 阶段：启动检查 → 实现 → 自检 → 汇报<br>
+          架构未覆盖 → 停下报告，不自行决策
+        </div>
+        <div><span class="trigger-badge trigger-manual">/code 或 /code T-XX</span></div>
+      </div>
+
+      <!-- qa -->
+      <div class="skill-card">
+        <div class="skill-card-header">
+          <div class="skill-icon">🔍</div>
+          <div>
+            <div class="skill-name">qa</div>
+            <div class="skill-role">测试工程师 — 只检查不写代码</div>
+          </div>
+        </div>
+        <div class="io-row">
+          <div class="io-box">
+            <div class="io-label">输入</div>
+            <div class="io-item">Product-Spec.md<br>Architecture.md<br>Tasks.md<br>源代码文件</div>
+          </div>
+          <div class="io-arrow">→</div>
+          <div class="io-box">
+            <div class="io-label">输出</div>
+            <div class="io-item">QA-Report.md<br>FIX-XX 任务<br>→ Tasks.md</div>
+          </div>
+        </div>
+        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:10px;">
+          P0严重 / P1警告 → 创建 FIX-XX 任务<br>
+          P2建议 → 仅写入报告，不创建任务
+        </div>
+        <div><span class="trigger-badge trigger-manual">/qa</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Section 3: dev-constraints -->
+  <div class="section">
+    <div class="section-title"><span class="num">3</span> dev-constraints.md — 代码自动守卫（C01–C43）</div>
+    <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:16px;">
+      作用范围：<code style="color:var(--accent2)">comic-growth-record/**</code> 和 <code style="color:var(--accent2)">server/**</code> 下所有编辑，<strong style="color:var(--text)">自动生效，无需触发</strong>
+    </p>
+    <div class="constraint-grid">
+      <div class="constraint-group">
+        <h4>🔐 环境 & AI 调用</h4>
+        <div class="constraint-item"><code>C03</code> 所有 Gemini 调用必须经 withRetry 包装（≥3次重试）</div>
+        <div class="constraint-item"><code>C04</code> 模型名引用常量，不允许硬编码</div>
+        <div class="constraint-item"><code>C20</code> 前端不允许存储或读取 API Key</div>
+        <div class="constraint-item"><code>C26</code> 前端 services 不得直接 import @google/genai</div>
+        <div class="constraint-item"><code>C02</code> 前端组件不直接调后端 API，必须经 services/ 层</div>
+      </div>
+      <div class="constraint-group">
+        <h4>🎨 角色 & 风格</h4>
+        <div class="constraint-item"><code>C05</code> 分镜图 1K（1024×1024），头像 2K（2048×2048）</div>
+        <div class="constraint-item"><code>C06</code> 生成角色图必须同时传参考图+文字描述</div>
+        <div class="constraint-item"><code>C07</code> 风格提示词必须从 styleConfig.getStylePrompt() 获取</div>
+        <div class="constraint-item"><code>C08</code> 同一组分镜必须使用完全相同的风格参数</div>
+        <div class="constraint-item"><code>C14</code> 有参考图方案失败时必须降级为纯文字方案</div>
+      </div>
+      <div class="constraint-group">
+        <h4>💾 数据 & API</h4>
+        <div class="constraint-item"><code>C11</code> 后端所有 AI 响应必须经 JSON.parse() 验证</div>
+        <div class="constraint-item"><code>C21</code> 图片存储在 data/images/{type}/ 下</div>
+        <div class="constraint-item"><code>C23</code> 前端展示用后端 URL，不用 base64 长存</div>
+        <div class="constraint-item"><code>C24</code> API 响应格式 { success, data?, error? }</div>
+        <div class="constraint-item"><code>C25</code> 图片文件名必须使用 UUID</div>
+      </div>
+      <div class="constraint-group">
+        <h4>🔄 流程 & 文档</h4>
+        <div class="constraint-item"><code>C09</code> 故事管线 4 步必须按顺序执行，不允许跳步</div>
+        <div class="constraint-item"><code>C27</code> 生成完成后显示「保存故事」按钮，不自动保存</div>
+        <div class="constraint-item"><code>C42</code> 保存三步顺序：poster → storage → DB</div>
+        <div class="constraint-item"><code>C39</code> PDF 中文必须 Canvas 渲染，不直接调 jsPDF.text</div>
+        <div class="constraint-item"><code>C15</code> Architecture.md 变更时必须同步更新架构图 HTML</div>
+        <div class="constraint-item"><code>C44</code> 修改 storyPipeline/imageGenerator/characterManager/API 路由时必须同步更新 agent-flow-diagram.html</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 4: 文档流转 -->
+  <div class="section">
+    <div class="section-title"><span class="num">4</span> 文档流转全图</div>
+    <div class="flow">
+      <pre style="background:transparent;border:none;padding:0;margin:0;">用户想法
+   │
+   ▼  /prd 或自动触发（product-spec-builder）
+Product-Spec.md ─────────────────────────────────────────────────┐
+   │                                                              │
+   │  /arch 或自动触发（architect）                               ▼
+   ▼                                                  Product-Spec-CHANGELOG.md
+Architecture.md ──────────────────────── 同步更新 ──────────────────┐
+   │                                        │                      │
+   ├──→ Tasks.md                   rules/dev-constraints.md        │
+   │       │                       architecture-diagram.html       │
+   │       │  /code T-XX（coder）   agent-flow-diagram.html        │
+   │       ▼                        ↑ 代码变更时同步更新            │
+   │    源代码（comic-growth-record/ + server/）                  变更追踪
+   │       │
+   │       │  /qa（qa）
+   │       ▼
+   │    QA-Report.md
+   │    + FIX-XX 任务 ──→ Tasks.md
+   │                           │
+   └───────────────────────────┘  /code FIX-XX → 修复完成</pre>
+    </div>
+  </div>
+
+  <!-- Section 5: 一句话总结 -->
+  <div class="section">
+    <div class="section-title"><span class="num">5</span> 一句话总结</div>
+    <table>
+      <thead>
+        <tr>
+          <th>文件 / Skill</th>
+          <th>角色</th>
+          <th>一句话</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>CLAUDE.md</td>
+          <td>协调者 Merry</td>
+          <td>守门员，确保 5 层不跳步，路由到正确 skill</td>
+        </tr>
+        <tr>
+          <td>product-spec-builder</td>
+          <td>废才 PM</td>
+          <td>把脑子里的浆糊逼成可执行的需求文档</td>
+        </tr>
+        <tr>
+          <td>architect</td>
+          <td>首席架构师</td>
+          <td>把需求变成 Claude Code 无法自由发挥的施工图纸</td>
+        </tr>
+        <tr>
+          <td>coder</td>
+          <td>施工队长</td>
+          <td>只执行不决策，按图施工，遇到未覆盖就停下报告</td>
+        </tr>
+        <tr>
+          <td>qa</td>
+          <td>测试工程师</td>
+          <td>只检查不写代码，对照三层文档，发现问题创建任务</td>
+        </tr>
+        <tr>
+          <td>dev-constraints.md</td>
+          <td>自动守卫</td>
+          <td>代码编辑时自动执行的红线规则（C01–C44），无需触发</td>
+        </tr>
+        <tr>
+          <td>agent-flow-diagram.html</td>
+          <td>方法调用图</td>
+          <td>核心审核文件，代码变更时必须同步更新（storyPipeline/imageGenerator/characterManager/API）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="text-align:center;color:var(--text-muted);font-size:0.78rem;margin-top:40px;padding-top:20px;border-top:1px solid var(--border);">
+    MangaGrow — SDD Overview · 更新于 2026-03-05
+  </div>
+
+</div>
+</body>
+</html>

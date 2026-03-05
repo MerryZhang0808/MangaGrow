@@ -1,0 +1,13 @@
+{
+  "name": "mangagrow",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n fe,be -c blue,green \"cd comic-growth-record && npm run dev\" \"cd server && npm run dev\"",
+    "dev:frontend": "cd comic-growth-record && npm run dev",
+    "dev:backend": "cd server && npm run dev",
+    "install:all": "npm install && cd comic-growth-record && npm install && cd ../server && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

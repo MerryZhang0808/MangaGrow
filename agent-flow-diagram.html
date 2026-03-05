@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MangaGrow — Agent 方法调用图</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+  min-height: 100vh;
+  padding: 32px 24px 80px;
+}
+
+h1 {
+  text-align: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: #f0f6fc;
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+.subtitle {
+  text-align: center;
+  color: #8b949e;
+  font-size: 13px;
+  margin-bottom: 40px;
+}
+
+/* Legend */
+.legend {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 36px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #8b949e;
+}
+.legend-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+}
+.legend-line {
+  width: 28px; height: 2px;
+}
+
+/* Tab bar */
+.tabs {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 32px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  padding: 4px;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+}
+.tab-btn {
+  padding: 8px 20px;
+  border: none;
+  background: transparent;
+  color: #8b949e;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 7px;
+  transition: all 0.2s;
+}
+.tab-btn.active {
+  background: #21262d;
+  color: #f0f6fc;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.tab-btn:hover:not(.active) { color: #c9d1d9; }
+
+/* Diagram area */
+.diagram { display: none; }
+.diagram.active { display: block; }
+
+/* ==================== PIPELINE DIAGRAM ==================== */
+.pipeline-container {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+.pipeline-section {
+  margin-bottom: 48px;
+}
+.section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #8b949e;
+  margin-bottom: 16px;
+  padding-left: 2px;
+}
+
+/* Step box */
+.step-box {
+  border-radius: 10px;
+  border: 1px solid #30363d;
+  background: #161b22;
+  padding: 16px 20px;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.step-box:hover {
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 2px rgba(88,166,255,0.12);
+  transform: translateY(-1px);
+}
+.step-box .step-num {
+  position: absolute;
+  top: -11px;
+  left: 16px;
+  background: #0d1117;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 20px;
+  border: 1px solid #30363d;
+}
+.step-box .fn-name {
+  font-size: 15px;
+  font-weight: 700;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  margin-bottom: 6px;
+}
+.step-box .fn-desc {
+  font-size: 12px;
+  color: #8b949e;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+.step-box .model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-text {
+  background: rgba(88,166,255,0.12);
+  border: 1px solid rgba(88,166,255,0.3);
+  color: #58a6ff;
+}
+.badge-image {
+  background: rgba(163,113,247,0.12);
+  border: 1px solid rgba(163,113,247,0.3);
+  color: #a371f7;
+}
+.badge-retry {
+  background: rgba(56,189,141,0.1);
+  border: 1px solid rgba(56,189,141,0.3);
+  color: #3fb950;
+  margin-left: 8px;
+}
+.step-box .io-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.io-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+}
+.io-chip .io-label {
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.6;
+  margin-right: 2px;
+}
+
+/* Arrow between steps */
+.arrow-down {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+  position: relative;
+}
+.arrow-down svg { opacity: 0.5; }
+.arrow-label {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 50%;
+  margin-top: -9px;
+  background: #0d1117;
+  padding: 1px 8px;
+  font-size: 10px;
+  color: #8b949e;
+  white-space: nowrap;
+  border-radius: 10px;
+}
+
+/* Parallel group */
+.parallel-group {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.parallel-group .step-box { flex: 1; }
+.parallel-separator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  min-width: 32px;
+  position: relative;
+}
+.parallel-separator span {
+  font-size: 10px;
+  color: #3fb950;
+  font-weight: 700;
+  background: #0d1117;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(63,185,80,0.3);
+  position: relative;
+  z-index: 1;
+}
+.parallel-separator::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0; bottom: 0;
+  width: 1px;
+  background: rgba(63,185,80,0.25);
+  border: none;
+  border-left: 1px dashed rgba(63,185,80,0.4);
+}
+
+/* Decision box (review step) */
+.decision-note {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(248,200,97,0.06);
+  border: 1px dashed rgba(248,200,97,0.3);
+  font-size: 11px;
+  color: #e3b341;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* Route table */
+.route-section {
+  max-width: 980px;
+  margin: 0 auto;
+}
+.route-table {
+  width: 100%;
+  border-collapse: collapse;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #30363d;
+  font-size: 13px;
+}
+.route-table th {
+  background: #161b22;
+  padding: 10px 16px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #8b949e;
+  border-bottom: 1px solid #30363d;
+}
+.route-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #21262d;
+  vertical-align: top;
+}
+.route-table tr:last-child td { border-bottom: none; }
+.route-table tr:hover td { background: #161b22; }
+.method-post {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(56,189,141,0.12);
+  border: 1px solid rgba(56,189,141,0.3);
+  color: #3fb950;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: monospace;
+}
+.route-path {
+  font-family: 'SF Mono', monospace;
+  color: #79c0ff;
+  font-size: 12px;
+}
+.service-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.tag-story { background: rgba(88,166,255,0.12); color: #58a6ff; }
+.tag-char { background: rgba(163,113,247,0.12); color: #a371f7; }
+.tag-input { background: rgba(56,189,141,0.12); color: #3fb950; }
+.tag-image { background: rgba(248,200,97,0.12); color: #e3b341; }
+
+/* ==================== OVERVIEW DIAGRAM ==================== */
+.overview-container {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.arch-grid {
+  display: grid;
+  grid-template-columns: 1fr 80px 1fr 80px 1fr;
+  gap: 0;
+  align-items: start;
+  margin-bottom: 40px;
+}
+
+.arch-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.arch-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 40px;
+}
+.arch-connector svg { opacity: 0.4; }
+.arch-connector span {
+  font-size: 10px;
+  color: #8b949e;
+  margin-top: 4px;
+  text-align: center;
+}
+
+.arch-card {
+  border-radius: 10px;
+  padding: 14px 16px;
+  border: 1px solid #30363d;
+  background: #161b22;
+}
+.arch-card.highlight {
+  border-color: #388bfd;
+  background: rgba(56,139,253,0.05);
+}
+.arch-card .card-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #f0f6fc;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.arch-card .card-title .icon {
+  font-size: 14px;
+}
+.arch-card .card-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.arch-card .item {
+  font-size: 11px;
+  color: #8b949e;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #21262d;
+  font-family: monospace;
+}
+.arch-card .item.em { color: #c9d1d9; }
+
+.arch-col-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #8b949e;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+/* Flow diagram SVG-based */
+.flow-svg-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  padding: 8px 0;
+}
+
+/* Tooltip */
+.tooltip {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 12px 16px;
+  max-width: 300px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  font-size: 12px;
+  line-height: 1.6;
+  display: none;
+}
+.tooltip .tt-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f0f6fc;
+  margin-bottom: 6px;
+  font-family: monospace;
+}
+.tooltip .tt-model {
+  margin-bottom: 4px;
+}
+.tooltip .tt-row {
+  color: #8b949e;
+  margin-bottom: 2px;
+}
+.tooltip .tt-row strong { color: #c9d1d9; }
+
+/* Color coding */
+.color-story { color: #58a6ff; }
+.color-char { color: #a371f7; }
+.color-input { color: #3fb950; }
+.color-image { color: #e3b341; }
+.color-text-model { color: #58a6ff; }
+.color-image-model { color: #a371f7; }
+
+/* ========== Scrollable full flow ========== */
+.full-flow {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+/* Header banner */
+.flow-banner {
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.flow-banner.story { border-color: rgba(88,166,255,0.3); background: rgba(88,166,255,0.05); }
+.flow-banner.char { border-color: rgba(163,113,247,0.3); background: rgba(163,113,247,0.05); }
+.flow-banner.input { border-color: rgba(56,189,141,0.3); background: rgba(56,189,141,0.05); }
+.flow-banner.img { border-color: rgba(248,200,97,0.3); background: rgba(248,200,97,0.05); }
+.flow-banner .banner-icon { font-size: 24px; }
+.flow-banner .banner-info { flex: 1; }
+.flow-banner .banner-title { font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+.flow-banner .banner-sub { font-size: 12px; color: #8b949e; }
+.flow-banner .banner-entry { font-family: monospace; font-size: 11px; color: #8b949e; }
+</style>
+</head>
+<body>
+
+<h1>MangaGrow — Agent 方法调用图</h1>
+<p class="subtitle">Gemini API 调用链路 · 服务方法 · 输入输出 · 并发策略</p>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div> gemini-2.5-flash（文本模型）</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#a371f7"></div> nano-banana-pro-preview（图像模型）</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div> 并行执行</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#e3b341"></div> 降级 / Fallback</div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('story')">故事生成管线</button>
+  <button class="tab-btn" onclick="switchTab('character')">人物创建管线</button>
+  <button class="tab-btn" onclick="switchTab('input')">输入分析</button>
+  <button class="tab-btn" onclick="switchTab('image')">分镜图生成</button>
+  <button class="tab-btn" onclick="switchTab('routes')">API 路由总览</button>
+  <button class="tab-btn" onclick="switchTab('e2e')">端到端流程</button>
+</div>
+
+<!-- ==================== 故事生成管线 ==================== -->
+<div id="tab-story" class="diagram active">
+  <div class="pipeline-container">
+
+    <div class="flow-banner story">
+      <div class="banner-icon">📖</div>
+      <div class="banner-info">
+        <div class="banner-title">故事生成管线 · storyPipeline.ts</div>
+        <div class="banner-sub">4 步串行 AI 推理 + 第 4 步与标题生成并行 · 每步含 JSON Retry（最多 4 次）</div>
+      </div>
+      <div class="banner-entry">入口：generateStory(input)</div>
+    </div>
+
+    <!-- Input -->
+    <div class="step-box" style="border-color:#388bfd; background:rgba(56,139,253,0.05);">
+      <div class="step-num" style="color:#58a6ff">INPUT</div>
+      <div class="fn-name" style="color:#58a6ff">StoryInput</div>
+      <div class="fn-desc">用户输入聚合对象</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">字段</span> text（文字描述）</div>
+        <div class="io-chip"><span class="io-label">字段</span> imageAnalysis[]（图片分析结果）</div>
+        <div class="io-chip"><span class="io-label">字段</span> characters[]（人物档案）</div>
+        <div class="io-chip"><span class="io-label">字段</span> style（漫画风格）</div>
+        <div class="io-chip"><span class="io-label">字段</span> imageCount（分镜数约束）</div>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="4,3"/></svg>
+      <svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#58a6ff" opacity="0.5"/></svg>
+    </div>
+
+    <!-- Step 1 -->
+    <div class="step-box" onclick="showTooltip(event,'generateOutline')" id="box-step1">
+      <div class="step-num" style="color:#58a6ff">Step 1</div>
+      <div class="fn-name" style="color:#58a6ff">generateOutline(input)</div>
+      <div class="fn-desc">分析核心事件，生成漫画故事大纲（起承转合 + 情感弧线）<br>⚠️ 人物规则两档：被提及角色强制出现 / 未提及角色按需</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+        <span class="model-badge badge-retry">↩ JSON Retry × 4</span>
+        <span class="model-badge" style="background:rgba(248,200,97,0.08);border:1px solid rgba(248,200,97,0.25);color:#e3b341">systemInstruction: STORY_SYSTEM_PROMPT</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">OUT</span> scenes[] { beat, description, emotion }</div>
+        <div class="io-chip"><span class="io-label">OUT</span> arc（情感弧线描述）</div>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#58a6ff" stroke-width="1.5"/></svg>
+      <svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#58a6ff" opacity="0.6"/></svg>
+    </div>
+
+    <!-- Step 2 -->
+    <div class="step-box" onclick="showTooltip(event,'reviewOutline')" id="box-step2">
+      <div class="step-num" style="color:#e3b341">Step 2</div>
+      <div class="fn-name" style="color:#e3b341">reviewOutline(outline)</div>
+      <div class="fn-desc">漫画编剧总监视角，审核大纲叙事推动力、因果连接、情感弧线、故事完整性</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+        <span class="model-badge badge-retry">↩ JSON Retry × 4</span>
+        <span class="model-badge" style="background:rgba(248,200,97,0.08);border:1px solid rgba(248,200,97,0.25);color:#e3b341">⚠ 失败时降级（不阻断主流程）</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">OUT</span> passed: boolean</div>
+        <div class="io-chip"><span class="io-label">OUT</span> issues[]</div>
+        <div class="io-chip"><span class="io-label">OUT</span> suggestions[]</div>
+      </div>
+      <div class="decision-note">
+        <span>⚡</span>
+        <span>passed=false → issues + suggestions 透传给 Step 3 作为修复指引；不重跑大纲，直接进 Step 3</span>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#58a6ff" stroke-width="1.5"/></svg>
+      <svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#58a6ff" opacity="0.6"/></svg>
+    </div>
+
+    <!-- Step 3 -->
+    <div class="step-box" onclick="showTooltip(event,'detailScripts')" id="box-step3">
+      <div class="step-num" style="color:#58a6ff">Step 3</div>
+      <div class="fn-name" style="color:#58a6ff">detailScripts(outline, input, reviewIssues?)</div>
+      <div class="fn-desc">细化每格分镜脚本：description（50-100字画面描述）+ caption（30-50字叙述）+ emotionalBeat<br>同步提取 keyObjects 和 characterDefinitions 用于后续图片生成</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+        <span class="model-badge badge-retry">↩ JSON Retry × 4</span>
+        <span class="model-badge" style="background:rgba(248,200,97,0.08);border:1px solid rgba(248,200,97,0.25);color:#e3b341">systemInstruction: STORY_SYSTEM_PROMPT</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">OUT</span> scripts[] { sceneNumber, description, caption, emotionalBeat }</div>
+        <div class="io-chip"><span class="io-label">OUT</span> keyObjects[] { name, description }</div>
+        <div class="io-chip"><span class="io-label">OUT</span> characterDefinitions[] { name, description }</div>
+      </div>
+    </div>
+
+    <div class="arrow-down" style="padding:10px 0">
+      <svg width="2" height="36" viewBox="0 0 2 36"><line x1="1" y1="0" x2="1" y2="36" stroke="#58a6ff" stroke-width="1.5"/></svg>
+      <svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:30px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#58a6ff" opacity="0.6"/></svg>
+    </div>
+
+    <!-- Step 4 + Title — Parallel -->
+    <div style="margin-bottom:6px;font-size:11px;color:#3fb950;font-weight:700;text-align:center;letter-spacing:1px">⚡ PARALLEL EXECUTION — Promise.all()</div>
+    <div class="parallel-group">
+      <div class="step-box" onclick="showTooltip(event,'checkConsistency')" id="box-step4a" style="border-color:rgba(56,189,141,0.35)">
+        <div class="step-num" style="color:#3fb950">Step 4a</div>
+        <div class="fn-name" style="color:#3fb950">checkConsistency(scripts, charDefs)</div>
+        <div class="fn-desc">检查分镜间角色描述、场景连贯、时间线、物品一致性；有问题自动修正 description</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+          <span class="model-badge badge-retry">↩ JSON Retry × 4</span>
+        </div>
+        <div class="io-row">
+          <div class="io-chip"><span class="io-label">OUT</span> scripts[]（已修正）</div>
+          <div class="io-chip"><span class="io-label">OUT</span> passed: boolean</div>
+        </div>
+      </div>
+
+      <div class="parallel-separator"><span>‖</span></div>
+
+      <div class="step-box" onclick="showTooltip(event,'generateTitle')" id="box-step4b" style="border-color:rgba(56,189,141,0.35)">
+        <div class="step-num" style="color:#3fb950">Step 4b</div>
+        <div class="fn-name" style="color:#3fb950">generateTitleInternal(text, imageAnalysis?)</div>
+        <div class="fn-desc">生成 4-10 字故事标题：「{人名}+{核心事件}」格式，禁止情绪词开头</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+          <span class="model-badge" style="background:rgba(248,200,97,0.08);border:1px solid rgba(248,200,97,0.25);color:#e3b341">Fallback → text.slice(0,10)</span>
+        </div>
+        <div class="io-row">
+          <div class="io-chip"><span class="io-label">OUT</span> title: string（4-10字）</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-down" style="padding:10px 0">
+      <svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#3fb950" stroke-width="1.5"/></svg>
+      <svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#3fb950" opacity="0.6"/></svg>
+    </div>
+
+    <!-- Output -->
+    <div class="step-box" style="border-color:rgba(56,189,141,0.4);background:rgba(56,189,141,0.04);">
+      <div class="step-num" style="color:#3fb950">OUTPUT</div>
+      <div class="fn-name" style="color:#3fb950">StoryOutput</div>
+      <div class="fn-desc">故事生成完成，返回结构化数据供前端展示</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">字段</span> title</div>
+        <div class="io-chip"><span class="io-label">字段</span> currentBatch[]（SceneScript）</div>
+        <div class="io-chip"><span class="io-label">字段</span> totalScenes</div>
+        <div class="io-chip"><span class="io-label">字段</span> keyObjects[]</div>
+        <div class="io-chip"><span class="io-label">字段</span> characterDefinitions[]</div>
+        <div class="io-chip"><span class="io-label">字段</span> storyOutline</div>
+      </div>
+    </div>
+
+    <!-- Year Summary -->
+    <div style="margin-top:40px;margin-bottom:12px;" class="section-label">年度总结模式（独立调用）</div>
+    <div class="step-box" onclick="showTooltip(event,'yearlySummary')">
+      <div class="step-num" style="color:#58a6ff">Export</div>
+      <div class="fn-name" style="color:#58a6ff">generateYearlySummary(stories[])</div>
+      <div class="fn-desc">根据多个 {title, inputText} 生成 300-500 字温馨成长总结，结尾含对孩子未来的期许</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+        <span class="model-badge badge-retry">↩ withRetry × 3</span>
+        <span class="model-badge" style="background:rgba(248,200,97,0.08);border:1px solid rgba(248,200,97,0.25);color:#e3b341">抛出异常 → 路由层降级</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">IN</span> SummaryStoryItem[] { title, inputText }</div>
+        <div class="io-chip"><span class="io-label">OUT</span> summary: string</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== 人物创建管线 ==================== -->
+<div id="tab-character" class="diagram">
+  <div class="pipeline-container">
+
+    <div class="flow-banner char">
+      <div class="banner-icon">🎭</div>
+      <div class="banner-info">
+        <div class="banner-title">人物创建管线 · characterAnalyzer.ts</div>
+        <div class="banner-sub">3 步串行：外貌分析 → Q版头像生成 → 性别年龄识别</div>
+      </div>
+      <div class="banner-entry">入口：createCharacterFull(name, imageData, mimeType)</div>
+    </div>
+
+    <!-- Input -->
+    <div class="step-box" style="border-color:rgba(163,113,247,0.4);background:rgba(163,113,247,0.04);">
+      <div class="step-num" style="color:#a371f7">INPUT</div>
+      <div class="fn-name" style="color:#a371f7">照片输入</div>
+      <div class="fn-desc">家长上传的孩子照片</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">字段</span> name（人物名字）</div>
+        <div class="io-chip"><span class="io-label">字段</span> imageData（base64）</div>
+        <div class="io-chip"><span class="io-label">字段</span> mimeType</div>
+      </div>
+    </div>
+
+    <div class="arrow-down"><svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#a371f7" stroke-width="1.5"/></svg><svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#a371f7" opacity="0.6"/></svg></div>
+
+    <!-- Step 1 -->
+    <div class="step-box">
+      <div class="step-num" style="color:#a371f7">Step 1</div>
+      <div class="fn-name" style="color:#a371f7">analyzeCharacter(name, imageData, mimeType)</div>
+      <div class="fn-desc">分析照片，生成 150-200 字超详细视觉描述：头发、默认服装（固定）、面部特征、配饰、体型。用于保证多画面人物一致性。</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+        <span class="model-badge badge-retry">↩ withRetry × 3</span>
+        <span class="model-badge" style="background:rgba(248,200,97,0.08);border:1px solid rgba(248,200,97,0.25);color:#e3b341">失败 → 降级 fallback 描述</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">IN</span> 照片 inlineData + 分析指令</div>
+        <div class="io-chip"><span class="io-label">OUT</span> description: string（150-200字）</div>
+      </div>
+    </div>
+
+    <div class="arrow-down"><svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#a371f7" stroke-width="1.5"/></svg><svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#a371f7" opacity="0.6"/></svg></div>
+
+    <!-- Step 2 -->
+    <div class="step-box">
+      <div class="step-num" style="color:#a371f7">Step 2</div>
+      <div class="fn-name" style="color:#a371f7">generateAvatar(name, imageData, mimeType, description, gender?, ageGroup?)</div>
+      <div class="fn-desc">基于照片 + description 生成 Q版卡通头像（头身比 2:1~3:1，大眼萌系）<br>优先级：参考图识别度 &gt; 可爱度 &gt; 风格化。2K 分辨率，1:1 宫格。</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-badge badge-image">🟣 nano-banana-pro-preview</span>
+        <span class="model-badge badge-retry">↩ withRetry × 3</span>
+        <span class="model-badge" style="background:rgba(248,200,97,0.08);border:1px solid rgba(248,200,97,0.25);color:#e3b341">aspectRatio: 1:1 · imageSize: 2K</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">IN</span> 照片 inlineData + description + 生成指令</div>
+        <div class="io-chip"><span class="io-label">OUT</span> { data: base64, mimeType } → saveImage('avatars')</div>
+      </div>
+    </div>
+
+    <div class="arrow-down"><svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#a371f7" stroke-width="1.5"/></svg><svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#a371f7" opacity="0.6"/></svg></div>
+
+    <!-- Step 3 -->
+    <div class="step-box">
+      <div class="step-num" style="color:#a371f7">Step 3</div>
+      <div class="fn-name" style="color:#a371f7">detectGenderAge(imageData, mimeType)</div>
+      <div class="fn-desc">从照片识别：性别（男/女/未知）、年龄段（婴儿/幼儿/儿童/少儿/成人/未知）</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+        <span class="model-badge badge-retry">↩ withRetry × 3</span>
+        <span class="model-badge" style="background:rgba(248,200,97,0.08);border:1px solid rgba(248,200,97,0.25);color:#e3b341">失败 → 默认"未知"</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">OUT</span> gender: string</div>
+        <div class="io-chip"><span class="io-label">OUT</span> ageGroup: string</div>
+      </div>
+    </div>
+
+    <div class="arrow-down"><svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#a371f7" stroke-width="1.5"/></svg><svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#a371f7" opacity="0.6"/></svg></div>
+
+    <!-- Output -->
+    <div class="step-box" style="border-color:rgba(163,113,247,0.4);background:rgba(163,113,247,0.04);">
+      <div class="step-num" style="color:#a371f7">OUTPUT</div>
+      <div class="fn-name" style="color:#a371f7">CharacterAnalysisResult</div>
+      <div class="fn-desc">人物档案创建完成，存入 DB</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">字段</span> description</div>
+        <div class="io-chip"><span class="io-label">字段</span> avatarData + avatarMimeType</div>
+        <div class="io-chip"><span class="io-label">字段</span> gender</div>
+        <div class="io-chip"><span class="io-label">字段</span> ageGroup</div>
+      </div>
+    </div>
+
+    <!-- Standalone export -->
+    <div style="margin-top:40px;margin-bottom:12px;" class="section-label">独立导出方法</div>
+    <div class="parallel-group">
+      <div class="step-box">
+        <div class="step-num" style="color:#a371f7">Export</div>
+        <div class="fn-name" style="color:#a371f7">analyzeCharacter(name, img, mime)</div>
+        <div class="fn-desc">单独调用人物分析（API 路由 analyze-character 使用）</div>
+        <div class="io-row"><div class="io-chip"><span class="io-label">OUT</span> description: string</div></div>
+      </div>
+      <div class="parallel-separator"><span>·</span></div>
+      <div class="step-box">
+        <div class="step-num" style="color:#a371f7">Export</div>
+        <div class="fn-name" style="color:#a371f7">detectGenderAge(img, mime)</div>
+        <div class="fn-desc">单独调用性别年龄检测（API 路由 detect-gender-age 使用）</div>
+        <div class="io-row"><div class="io-chip"><span class="io-label">OUT</span> { gender, ageGroup }</div></div>
+      </div>
+      <div class="parallel-separator"><span>·</span></div>
+      <div class="step-box">
+        <div class="step-num" style="color:#a371f7">Export</div>
+        <div class="fn-name" style="color:#a371f7">generateAvatar(name, img, mime, desc, ...)</div>
+        <div class="fn-desc">单独调用头像重生成（API 路由 generate-avatar 使用，可更新 DB）</div>
+        <div class="io-row"><div class="io-chip"><span class="io-label">OUT</span> { data, mimeType }</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== 输入分析 ==================== -->
+<div id="tab-input" class="diagram">
+  <div class="pipeline-container">
+
+    <div class="flow-banner input">
+      <div class="banner-icon">🎙️</div>
+      <div class="banner-info">
+        <div class="banner-title">输入分析服务 · inputAnalyzer.ts</div>
+        <div class="banner-sub">音频转写 + 图片并行分析，为故事管线提供结构化输入</div>
+      </div>
+      <div class="banner-entry">导出：transcribeAudio · analyzeImages</div>
+    </div>
+
+    <!-- Audio -->
+    <div class="section-label">语音转写</div>
+    <div class="step-box">
+      <div class="step-num" style="color:#3fb950">Export</div>
+      <div class="fn-name" style="color:#3fb950">transcribeAudio(audioBase64, mimeType)</div>
+      <div class="fn-desc">将家长的语音描述转录为文字，保留口语化风格</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+        <span class="model-badge badge-retry">↩ withRetry × 3</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">IN</span> audio inlineData { mimeType: 'audio/webm', data }</div>
+        <div class="io-chip"><span class="io-label">IN</span> 转录指令文本</div>
+        <div class="io-chip"><span class="io-label">OUT</span> text: string（转录文字）</div>
+      </div>
+    </div>
+
+    <div style="height:32px"></div>
+
+    <!-- Image analyze -->
+    <div class="section-label">图片并行分析</div>
+    <div class="step-box">
+      <div class="step-num" style="color:#3fb950">Export</div>
+      <div class="fn-name" style="color:#3fb950">analyzeImages(imageBase64s[])</div>
+      <div class="fn-desc">对每张图片并行调用 Gemini，提取：场景、人物动作、关键物品、情绪氛围<br>单图失败不影响整体，返回 fallback 描述</div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+        <span class="model-badge badge-retry">↩ withRetry × 4（每图独立）</span>
+        <span class="model-badge" style="background:rgba(56,189,141,0.1);border:1px solid rgba(56,189,141,0.3);color:#3fb950">Promise.all 并行</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">IN</span> Array&lt;{ data: base64, mimeType }&gt;</div>
+        <div class="io-chip"><span class="io-label">OUT</span> ImageAnalysis[] { index, description } —— 按 index 排序</div>
+      </div>
+    </div>
+
+    <!-- Parallel diagram -->
+    <div style="margin:24px 0 12px;text-align:center;font-size:11px;color:#3fb950;font-weight:700">⚡ 多图并行示意（3张图为例）</div>
+    <div class="parallel-group">
+      <div class="step-box" style="border-color:rgba(56,189,141,0.3)">
+        <div class="fn-name" style="color:#3fb950;font-size:12px">analyzeOne(img[0], 0)</div>
+        <div class="fn-desc" style="font-size:11px">图1 → Gemini → description</div>
+      </div>
+      <div class="parallel-separator"><span>‖</span></div>
+      <div class="step-box" style="border-color:rgba(56,189,141,0.3)">
+        <div class="fn-name" style="color:#3fb950;font-size:12px">analyzeOne(img[1], 1)</div>
+        <div class="fn-desc" style="font-size:11px">图2 → Gemini → description</div>
+      </div>
+      <div class="parallel-separator"><span>‖</span></div>
+      <div class="step-box" style="border-color:rgba(56,189,141,0.3)">
+        <div class="fn-name" style="color:#3fb950;font-size:12px">analyzeOne(img[2], 2)</div>
+        <div class="fn-desc" style="font-size:11px">图3 → Gemini → description</div>
+      </div>
+    </div>
+
+    <div class="arrow-down" style="padding:10px 0"><svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#3fb950" stroke-width="1.5"/></svg><svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#3fb950" opacity="0.6"/></svg></div>
+
+    <div class="step-box" style="border-color:rgba(56,189,141,0.4);background:rgba(56,189,141,0.04);">
+      <div class="fn-name" style="color:#3fb950">合并 + 排序 → ImageAnalysis[]</div>
+      <div class="fn-desc">sort by index，透传给故事管线 Step 1 generateOutline 的 imageAnalysis 字段</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== 分镜图生成 ==================== -->
+<div id="tab-image" class="diagram">
+  <div class="pipeline-container">
+
+    <div class="flow-banner img">
+      <div class="banner-icon">🎨</div>
+      <div class="banner-info">
+        <div class="banner-title">分镜图生成 · imageGenerator.ts</div>
+        <div class="banner-sub">6层优先级提示词 · 人物参考图注入 · 角色快照累积(v1.9) · 视觉引用失败自动降级为纯文本</div>
+      </div>
+      <div class="banner-entry">入口：generateSceneImage(params)</div>
+    </div>
+
+    <!-- Input -->
+    <div class="step-box" style="border-color:rgba(248,200,97,0.4);background:rgba(248,200,97,0.04);">
+      <div class="step-num" style="color:#e3b341">INPUT</div>
+      <div class="fn-name" style="color:#e3b341">SceneGenerationParams</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">字段</span> script（分镜 description，50-100字）</div>
+        <div class="io-chip"><span class="io-label">字段</span> style（漫画风格）</div>
+        <div class="io-chip"><span class="io-label">字段</span> ratio（宽高比）</div>
+        <div class="io-chip"><span class="io-label">字段</span> characterContext</div>
+        <div class="io-chip"><span class="io-label">字段</span> objectContext</div>
+        <div class="io-chip"><span class="io-label">字段</span> referenceChars[]（CharacterImageRef）</div>
+        <div class="io-chip"><span class="io-label">字段</span> sceneReferenceImages[]</div>
+        <div class="io-chip"><span class="io-label">字段</span> characterSnapshots[] <span style="color:#3fb950;font-size:10px">v1.9</span></div>
+        <div class="io-chip"><span class="io-label">字段</span> isUserPhoto?</div>
+      </div>
+    </div>
+
+    <div class="arrow-down"><svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#e3b341" stroke-width="1.5"/></svg><svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#e3b341" opacity="0.6"/></svg></div>
+
+    <!-- Prompt assembly -->
+    <div class="step-box">
+      <div class="step-num" style="color:#e3b341">Prompt</div>
+      <div class="fn-name" style="color:#e3b341">紧凑 YAML 提示词 <span style="color:#3fb950;font-size:10px">v1.9</span></div>
+      <div class="fn-desc">6层结构保持不变，格式从长文本改为 YAML 键值对（约600字，原1500字）</div>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:70px;font-weight:700;color:#e3b341">[ROLE]</span> 一致性规则 + 服装策略（characterStyleMode: full/head-only）</div>
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:70px;font-weight:700;color:#e3b341">[CHARS]</span> characterContext（人物定义）</div>
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:70px;font-weight:700;color:#e3b341">[SCENE]</span> script（画面描述）</div>
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:70px;font-weight:700;color:#e3b341">[OBJECTS]</span> objectContext（关键物品）</div>
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:70px;font-weight:700;color:#e3b341">[STYLE]</span> getStylePrompt（风格参数）</div>
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:70px;font-weight:700;color:#e3b341">[QUALITY]</span> 单格漫画，无水印/文字/多指</div>
+      </div>
+    </div>
+
+    <div class="arrow-down"><svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#e3b341" stroke-width="1.5"/></svg><svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#e3b341" opacity="0.6"/></svg></div>
+
+    <!-- Visual ref injection -->
+    <div class="step-box">
+      <div class="step-num" style="color:#e3b341">Parts</div>
+      <div class="fn-name" style="color:#e3b341">视觉参考注入策略</div>
+      <div class="fn-desc">按照人物+场景+快照注入，每张参考图紧跟其标签文本（interleaved）</div>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:80px;font-weight:700;color:#e3b341">场景参考帧</span> sceneReferenceImages[0] + 标签（风格参考 or 用户照片）</div>
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:80px;font-weight:700;color:#e3b341">人物参考</span> Q版头像 inlineData + 「[人物 X 的Q版形象]」标签</div>
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:80px;font-weight:700;color:#e3b341">多角度表</span> referenceSheet（如有）+ 标签</div>
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:80px;font-weight:700;color:#3fb950">角色快照</span> characterSnapshots[0] + 「[角色一致性参考]」标签 <span style="color:#3fb950;font-size:10px">v1.9</span></div>
+        <div class="io-chip" style="justify-content:flex-start"><span style="min-width:80px;font-weight:700;color:#e3b341">主提示词</span> basePromptText（最后注入）</div>
+      </div>
+    </div>
+
+    <div class="arrow-down"><svg width="2" height="32" viewBox="0 0 2 32"><line x1="1" y1="0" x2="1" y2="32" stroke="#e3b341" stroke-width="1.5"/></svg><svg width="10" height="6" viewBox="0 0 10 6" style="position:absolute;top:26px;left:50%;transform:translateX(-50%)"><polygon points="0,0 10,0 5,6" fill="#e3b341" opacity="0.6"/></svg></div>
+
+    <!-- Execution -->
+    <div class="step-box">
+      <div class="step-num" style="color:#e3b341">Gen</div>
+      <div class="fn-name" style="color:#e3b341">executeGeneration(hasVisuals)</div>
+      <div class="fn-desc">调用 Gemini 图像模型，imageSize: 1K</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="model-badge badge-image">🟣 nano-banana-pro-preview</span>
+        <span class="model-badge badge-retry">↩ withRetry × 3</span>
+      </div>
+      <div class="decision-note">
+        <span>🛡️</span>
+        <span>有参考图失败 → 自动 Fallback 到纯文本模式（hasVisuals=false）再重试一次</span>
+      </div>
+      <div class="io-row" style="margin-top:10px">
+        <div class="io-chip"><span class="io-label">OUT</span> { data: base64, mimeType } → saveImage('scenes')</div>
+        <div class="io-chip"><span class="io-label">RES</span> imageUrl: /api/images/scenes/xxx.png</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== API 路由总览 ==================== -->
+<div id="tab-routes" class="diagram">
+  <div class="route-section">
+
+    <div class="flow-banner" style="border-color:rgba(139,148,158,0.3);background:rgba(139,148,158,0.04);margin-bottom:28px">
+      <div class="banner-icon">🌐</div>
+      <div class="banner-info">
+        <div class="banner-title">REST API 路由总览 · server/routes/ai.ts</div>
+        <div class="banner-sub">所有路由挂载在 /api/ai/ · Express Router · 端口 3001</div>
+      </div>
+    </div>
+
+    <table class="route-table">
+      <thead>
+        <tr>
+          <th style="width:180px">端点</th>
+          <th style="width:90px">调用服务</th>
+          <th>输入</th>
+          <th>输出</th>
+          <th style="width:100px">AI 模型</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <span class="method-post">POST</span><br>
+            <span class="route-path">/api/ai/transcribe-audio</span>
+          </td>
+          <td><span class="service-tag tag-input">inputAnalyzer</span></td>
+          <td><code style="font-size:11px">{ audioBase64, mimeType }</code></td>
+          <td><code style="font-size:11px">{ text: string }</code></td>
+          <td><span class="model-badge badge-text" style="font-size:10px">Flash</span></td>
+        </tr>
+        <tr>
+          <td>
+            <span class="method-post">POST</span><br>
+            <span class="route-path">/api/ai/analyze-images</span>
+          </td>
+          <td><span class="service-tag tag-input">inputAnalyzer</span></td>
+          <td><code style="font-size:11px">{ images: [{data, mimeType}] }</code></td>
+          <td><code style="font-size:11px">ImageAnalysis[]</code></td>
+          <td><span class="model-badge badge-text" style="font-size:10px">Flash ×N</span></td>
+        </tr>
+        <tr>
+          <td>
+            <span class="method-post">POST</span><br>
+            <span class="route-path">/api/ai/generate-story</span>
+          </td>
+          <td><span class="service-tag tag-story">storyPipeline</span></td>
+          <td><code style="font-size:11px">StoryInput</code></td>
+          <td><code style="font-size:11px">StoryOutput</code></td>
+          <td><span class="model-badge badge-text" style="font-size:10px">Flash ×4</span></td>
+        </tr>
+        <tr>
+          <td>
+            <span class="method-post">POST</span><br>
+            <span class="route-path">/api/ai/generate-image</span>
+          </td>
+          <td><span class="service-tag tag-image">imageGenerator</span><br><span class="service-tag" style="font-size:10px;background:rgba(139,148,158,0.12);color:#8b949e">DB查角色引用图</span></td>
+          <td><code style="font-size:11px">{ script, style, ratio, referenceCharIds[], sceneReferenceImages[], ... }</code></td>
+          <td><code style="font-size:11px">{ imageUrl: string }</code></td>
+          <td><span class="model-badge badge-image" style="font-size:10px">Pro Image</span></td>
+        </tr>
+        <tr>
+          <td>
+            <span class="method-post">POST</span><br>
+            <span class="route-path">/api/ai/analyze-character</span>
+          </td>
+          <td><span class="service-tag tag-char">characterAnalyzer</span></td>
+          <td><code style="font-size:11px">{ name, imageData, mimeType }</code></td>
+          <td><code style="font-size:11px">{ description: string }</code></td>
+          <td><span class="model-badge badge-text" style="font-size:10px">Flash</span></td>
+        </tr>
+        <tr>
+          <td>
+            <span class="method-post">POST</span><br>
+            <span class="route-path">/api/ai/generate-avatar</span>
+          </td>
+          <td><span class="service-tag tag-char">characterAnalyzer</span><br><span class="service-tag" style="font-size:10px;background:rgba(139,148,158,0.12);color:#8b949e">saveImage + DB更新</span></td>
+          <td><code style="font-size:11px">{ name, imageData, mimeType, description, gender?, ageGroup?, specificAge?, characterId? }</code></td>
+          <td><code style="font-size:11px">{ avatarUrl: string }</code></td>
+          <td><span class="model-badge badge-image" style="font-size:10px">Pro Image</span></td>
+        </tr>
+        <tr>
+          <td>
+            <span class="method-post">POST</span><br>
+            <span class="route-path">/api/ai/detect-gender-age</span>
+          </td>
+          <td><span class="service-tag tag-char">characterAnalyzer</span></td>
+          <td><code style="font-size:11px">{ imageData, mimeType }</code></td>
+          <td><code style="font-size:11px">{ gender, ageGroup }</code></td>
+          <td><span class="model-badge badge-text" style="font-size:10px">Flash</span></td>
+        </tr>
+        <tr>
+          <td>
+            <span class="method-post">POST</span><br>
+            <span class="route-path">/api/ai/generate-summary</span>
+          </td>
+          <td><span class="service-tag tag-story">storyPipeline</span></td>
+          <td><code style="font-size:11px">{ stories: SummaryStoryItem[] }</code></td>
+          <td><code style="font-size:11px">{ summary: string }</code></td>
+          <td><span class="model-badge badge-text" style="font-size:10px">Flash</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- withRetry detail -->
+    <div style="margin-top:32px">
+      <div class="section-label" style="margin-bottom:16px">通用重试机制 · gemini.ts → withRetry()</div>
+      <div class="step-box">
+        <div class="fn-name" style="color:#8b949e">withRetry&lt;T&gt;(operation, retries=3)</div>
+        <div class="fn-desc">指数退避 + 抖动：baseDelay = 1000ms × 2^i + random(0~1000ms)<br>4xx 错误不重试（429 除外）· 全部失败时抛出最后一次异常</div>
+        <div class="io-row">
+          <div class="io-chip"><span class="io-label">Retry 1</span> ~1-2s</div>
+          <div class="io-chip"><span class="io-label">Retry 2</span> ~2-3s</div>
+          <div class="io-chip"><span class="io-label">Retry 3</span> ~4-5s</div>
+        </div>
+        <div class="decision-note" style="margin-top:10px">
+          <span>📝</span>
+          <span>storyPipeline 的 callAiWithJsonRetry 在此基础上额外增加 JSON 解析重试（最多4次），间隔 2s × 2^attempt</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ==================== 端到端流程 ==================== -->
+<div id="tab-e2e" class="diagram">
+  <div class="pipeline-container" style="max-width:1100px">
+
+    <div class="flow-banner" style="border-color:rgba(63,185,115,0.4);background:linear-gradient(135deg,rgba(63,185,115,0.08),rgba(88,166,255,0.08))">
+      <div class="banner-icon">🔄</div>
+      <div class="banner-info">
+        <div class="banner-title">端到端流程 · 用户输入 → 漫画输出</div>
+        <div class="banner-sub">完整数据流：从用户输入到最终漫画分镜图的全部处理步骤</div>
+      </div>
+    </div>
+
+    <!-- 用户输入 -->
+    <div class="step-box" style="border-color:#3fb950;background:rgba(63,185,115,0.05)">
+      <div class="step-num" style="color:#3fb950">👤 用户输入</div>
+      <div class="fn-name" style="color:#3fb950">前端 · App.tsx</div>
+      <div class="fn-desc">用户在界面上的所有输入内容</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">文字</span> text（故事描述）</div>
+        <div class="io-chip"><span class="io-label">图片</span> inputImages[]（参考照片）</div>
+        <div class="io-chip"><span class="io-label">人物</span> characters[]（人物库角色）</div>
+        <div class="io-chip"><span class="io-label">风格</span> style（漫画风格）</div>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="28" viewBox="0 0 2 28"><line x1="1" y1="0" x2="1" y2="28" stroke="#3fb950" stroke-width="2"/></svg>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="position:absolute;top:22px;left:50%;transform:translateX(-50%)"><polygon points="0,0 12,0 6,7" fill="#3fb950"/></svg>
+    </div>
+
+    <!-- Step 1: 图片分析 -->
+    <div class="step-box" style="border-color:#58a6ff">
+      <div class="step-num" style="color:#58a6ff">Step 1</div>
+      <div class="fn-name" style="color:#58a6ff">图片分析（可选）</div>
+      <div class="fn-desc">如果用户上传了参考照片，调用 AI 分析图片内容</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash</span>
+        <span style="font-size:11px;color:#8b949e">POST /api/ai/analyze-images</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">IN</span> inputImages[]</div>
+        <div class="io-chip"><span class="io-label">OUT</span> imageAnalysis[] { index, description }</div>
+      </div>
+      <div class="decision-note">
+        <span>⚡</span>
+        <span>无图片时跳过此步骤</span>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="28" viewBox="0 0 2 28"><line x1="1" y1="0" x2="1" y2="28" stroke="#58a6ff" stroke-width="2"/></svg>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="position:absolute;top:22px;left:50%;transform:translateX(-50%)"><polygon points="0,0 12,0 6,7" fill="#58a6ff"/></svg>
+    </div>
+
+    <!-- Step 2: 故事生成管线 -->
+    <div class="step-box" style="border-color:#e3b341;background:rgba(248,200,97,0.05)">
+      <div class="step-num" style="color:#e3b341">Step 2</div>
+      <div class="fn-name" style="color:#e3b341">故事生成管线 · storyPipeline.ts</div>
+      <div class="fn-desc">4 步 AI 推理：大纲生成 → 质量审核 → 脚本细化 → 一致性检查（并行标题生成）</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <span class="model-badge badge-text">🔵 gemini-2.5-flash × 4-5</span>
+        <span style="font-size:11px;color:#8b949e">POST /api/ai/generate-story</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">IN</span> text + imageAnalysis + characters + style</div>
+        <div class="io-chip"><span class="io-label">OUT</span> scripts[]（分镜脚本）</div>
+        <div class="io-chip"><span class="io-label">OUT</span> characterDefinitions[]（角色定义）</div>
+        <div class="io-chip"><span class="io-label">OUT</span> title（故事标题）</div>
+      </div>
+      <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:11px;color:#8b949e">
+        <strong style="color:#e3b341">子步骤：</strong>
+        generateOutline → reviewOutline → detailScripts → checkConsistency + generateTitleInternal
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="28" viewBox="0 0 2 28"><line x1="1" y1="0" x2="1" y2="28" stroke="#e3b341" stroke-width="2"/></svg>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="position:absolute;top:22px;left:50%;transform:translateX(-50%)"><polygon points="0,0 12,0 6,7" fill="#e3b341"/></svg>
+    </div>
+
+    <!-- Step 3: 构建图片生成参数 -->
+    <div class="step-box" style="border-color:#a371f7">
+      <div class="step-num" style="color:#a371f7">Step 3</div>
+      <div class="fn-name" style="color:#a371f7">构建图片生成参数</div>
+      <div class="fn-desc">前端组装每个分镜的图片生成请求参数</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">参数</span> script（分镜描述）</div>
+        <div class="io-chip"><span class="io-label">参数</span> style（漫画风格）</div>
+        <div class="io-chip"><span class="io-label">参数</span> characterContext（角色描述）</div>
+        <div class="io-chip"><span class="io-label">参数</span> referenceCharIds[]（人物库ID）</div>
+        <div class="io-chip"><span class="io-label">参数</span> sceneReferenceImages[]（连续性参考）</div>
+      </div>
+      <div class="decision-note">
+        <span>💡</span>
+        <span>人物库角色：characterContext 传递简短指令（以Q版头像为准）；非人物库角色：传递完整外貌描述</span>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="28" viewBox="0 0 2 28"><line x1="1" y1="0" x2="1" y2="28" stroke="#a371f7" stroke-width="2"/></svg>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="position:absolute;top:22px;left:50%;transform:translateX(-50%)"><polygon points="0,0 12,0 6,7" fill="#a371f7"/></svg>
+    </div>
+
+    <!-- Step 4: 加载人物库头像 -->
+    <div class="step-box" style="border-color:#f778ba">
+      <div class="step-num" style="color:#f778ba">Step 4</div>
+      <div class="fn-name" style="color:#f778ba">加载人物库头像</div>
+      <div class="fn-desc">后端根据 referenceCharIds 从数据库加载 Q 版头像图片</div>
+      <div style="font-size:11px;color:#8b949e;margin-bottom:8px">server/routes/ai.ts → generate-image</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">IN</span> referenceCharIds[]</div>
+        <div class="io-chip"><span class="io-label">OUT</span> referenceChars[] { name, avatarData, avatarMimeType }</div>
+      </div>
+      <div class="decision-note">
+        <span>⚡</span>
+        <span>无人物库角色时 referenceChars = []</span>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="28" viewBox="0 0 2 28"><line x1="1" y1="0" x2="1" y2="28" stroke="#f778ba" stroke-width="2"/></svg>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="position:absolute;top:22px;left:50%;transform:translateX(-50%)"><polygon points="0,0 12,0 6,7" fill="#f778ba"/></svg>
+    </div>
+
+    <!-- Step 5: 分镜图生成 -->
+    <div class="step-box" style="border-color:#a371f7;background:rgba(163,113,247,0.05)">
+      <div class="step-num" style="color:#a371f7">Step 5</div>
+      <div class="fn-name" style="color:#a371f7">分镜图生成 · imageGenerator.ts</div>
+      <div class="fn-desc">调用 Gemini 图像生成 API，结合文字描述和参考图片生成分镜图</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <span class="model-badge badge-image">🟣 nano-banana-pro-preview</span>
+        <span style="font-size:11px;color:#8b949e">POST /api/ai/generate-image</span>
+      </div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">IN</span> script + style + characterContext</div>
+        <div class="io-chip"><span class="io-label">IN</span> referenceChars[]（Q版头像）</div>
+        <div class="io-chip"><span class="io-label">IN</span> sceneReferenceImages[]（连续性参考）</div>
+        <div class="io-chip"><span class="io-label">OUT</span> imageUrl（生成的分镜图）</div>
+      </div>
+      <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:11px;color:#8b949e">
+        <strong style="color:#a371f7">Prompt 结构：</strong><br>
+        [图片1: Q版头像] + "严格参考发型发色、面部特征"<br>
+        [图片2: 连续性参考（可选）] + "参考画风"<br>
+        [文字 Prompt] ROLE + CHARACTERS + SCENE + STYLE + QUALITY
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="28" viewBox="0 0 2 28"><line x1="1" y1="0" x2="1" y2="28" stroke="#a371f7" stroke-width="2"/></svg>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="position:absolute;top:22px;left:50%;transform:translateX(-50%)"><polygon points="0,0 12,0 6,7" fill="#a371f7"/></svg>
+    </div>
+
+    <!-- Step 6: 循环生成所有分镜 -->
+    <div class="step-box" style="border-color:#79c0ff">
+      <div class="step-num" style="color:#79c0ff">Step 6</div>
+      <div class="fn-name" style="color:#79c0ff">循环生成所有分镜</div>
+      <div class="fn-desc">对每个分镜重复 Step 3-5，使用角色快照机制保持人物外观一致性</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">循环</span> scenes[0] → scenes[1] → ... → scenes[n]</div>
+        <div class="io-chip"><span class="io-label">连续性</span> sceneReferenceImages（前一分镜）</div>
+      </div>
+      <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px">
+        <div style="font-size:11px;font-weight:700;color:#3fb950;margin-bottom:6px">📸 角色快照机制 (v1.9)</div>
+        <div style="font-size:11px;color:#8b949e;line-height:1.6">
+          <strong>输入：</strong>characterSnapshots[0]（该角色在已生成分镜中的最佳参考图）<br>
+          <strong>标签：</strong>「[角色一致性参考] 保持与该角色在之前分镜中的外观一致。」<br>
+          <strong>更新：</strong>每生成分镜后，将 imageUrl 存入 characterSnapshots[charId]，作为后续分镜的参考
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow-down">
+      <svg width="2" height="28" viewBox="0 0 2 28"><line x1="1" y1="0" x2="1" y2="28" stroke="#79c0ff" stroke-width="2"/></svg>
+      <svg width="12" height="7" viewBox="0 0 12 7" style="position:absolute;top:22px;left:50%;transform:translateX(-50%)"><polygon points="0,0 12,0 6,7" fill="#79c0ff"/></svg>
+    </div>
+
+    <!-- 最终输出 -->
+    <div class="step-box" style="border-color:#3fb950;background:rgba(63,185,115,0.08)">
+      <div class="step-num" style="color:#3fb950">✅ 最终输出</div>
+      <div class="fn-name" style="color:#3fb950">漫画分镜组</div>
+      <div class="fn-desc">完整的漫画故事，包含标题和所有分镜图</div>
+      <div class="io-row">
+        <div class="io-chip"><span class="io-label">输出</span> title（故事标题）</div>
+        <div class="io-chip"><span class="io-label">输出</span> scenes[] { imageUrl, script, caption }</div>
+        <div class="io-chip"><span class="io-label">输出</span> keyObjects[]（关键物品）</div>
+      </div>
+    </div>
+
+    <!-- 关键数据流说明 -->
+    <div style="margin-top:32px;padding:16px;background:#161b22;border:1px solid #30363d;border-radius:10px">
+      <div style="font-size:13px;font-weight:700;color:#f0f6fc;margin-bottom:12px">📊 关键数据流</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;font-size:12px;color:#8b949e">
+        <div style="padding:10px;background:#21262d;border-radius:6px">
+          <div style="color:#58a6ff;font-weight:600;margin-bottom:4px">文字描述流向</div>
+          user.text → imageAnalysis → storyPipeline → scripts[] → imageGenerator.prompt
+        </div>
+        <div style="padding:10px;background:#21262d;border-radius:6px">
+          <div style="color:#a371f7;font-weight:600;margin-bottom:4px">人物库角色流向</div>
+          characters[] → referenceCharIds[] → DB.query → referenceChars[] → imageGenerator.parts
+        </div>
+        <div style="padding:10px;background:#21262d;border-radius:6px">
+          <div style="color:#3fb950;font-weight:600;margin-bottom:4px">图片连续性流向</div>
+          scene[n-1].imageUrl → sceneReferenceImages → imageGenerator → scene[n].imageUrl
+        </div>
+        <div style="padding:10px;background:#21262d;border-radius:6px">
+          <div style="color:#f778ba;font-weight:600;margin-bottom:4px">角色快照流向 (v1.9)</div>
+          scene.imageUrl → characterSnapshots[charId] → imageGenerator.parts + 「[角色一致性参考]」标签
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Tooltip -->
+<div id="tooltip" class="tooltip"></div>
+
+<script>
+// Tab switch
+function switchTab(name) {
+  document.querySelectorAll('.diagram').forEach(d => d.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.target.classList.add('active');
+  hideTooltip();
+}
+
+// Tooltip data
+const tooltips = {
+  generateOutline: {
+    title: 'generateOutline(input)',
+    model: '🔵 gemini-2.5-flash · JSON',
+    rows: [
+      ['System Prompt', 'STORY_SYSTEM_PROMPT（儿童成长漫画创作助手）'],
+      ['人物规则', '被提及角色强制出现 / 未提及角色可选'],
+      ['分镜数约束', 'imageCount>0 → 固定数量；否则 2-4 格'],
+      ['输出格式', '{ scenes[{beat,description,emotion}], arc }'],
+      ['Retry', 'JSON Retry × 4 + 指数退避'],
+    ]
+  },
+  reviewOutline: {
+    title: 'reviewOutline(outline)',
+    model: '🔵 gemini-2.5-flash · JSON',
+    rows: [
+      ['审核维度', '叙事推动力 / 因果连接 / 情感弧线 / 故事完整性'],
+      ['失败策略', '不重跑大纲，issues 透传给 Step 3'],
+      ['降级说明', '失败时继续进 Step 3（不阻断主流程）'],
+    ]
+  },
+  detailScripts: {
+    title: 'detailScripts(outline, input, reviewIssues?)',
+    model: '🔵 gemini-2.5-flash · JSON',
+    rows: [
+      ['description', '50-100字画面描述，用于图片生成'],
+      ['caption', '30-50字故事叙述，展示在分镜图下方'],
+      ['emotionalBeat', '情感节拍标注'],
+      ['keyObjects', '关键物品提取'],
+      ['characterDefs', '角色视觉定义（跨镜头一致性基础）'],
+    ]
+  },
+  checkConsistency: {
+    title: 'checkConsistency(scripts, charDefs)',
+    model: '🔵 gemini-2.5-flash · JSON',
+    rows: [
+      ['检查维度', '角色一致性 / 场景连贯 / 时间线 / 物品'],
+      ['自动修正', '有 fix → 直接替换 description，不再重跑'],
+      ['并行', '与 generateTitleInternal 同时执行'],
+    ]
+  },
+  generateTitle: {
+    title: 'generateTitleInternal(text, imageAnalysis?)',
+    model: '🔵 gemini-2.5-flash · text/plain',
+    rows: [
+      ['格式要求', '4-10字，「{人名}+{核心事件}」优先'],
+      ['禁止', '情绪词开头 / 形容词堆叠'],
+      ['Fallback', '失败 → text.slice(0,10) + "..."'],
+      ['并行', '与 checkConsistency 同时执行'],
+    ]
+  },
+  yearlySummary: {
+    title: 'generateYearlySummary(stories[])',
+    model: '🔵 gemini-2.5-flash · text/plain',
+    rows: [
+      ['输入', 'SummaryStoryItem[] { title, inputText }'],
+      ['输出', '300-500字连贯成长总结段落'],
+      ['错误处理', '抛出异常 → 路由层返回 { success: false }，前端降级'],
+    ]
+  }
+};
+
+function showTooltip(e, key) {
+  const data = tooltips[key];
+  if (!data) return;
+  const tt = document.getElementById('tooltip');
+  let html = `<div class="tt-title">${data.title}</div>`;
+  html += `<div class="tt-model" style="color:#8b949e;font-size:11px;margin-bottom:8px">${data.model}</div>`;
+  data.rows.forEach(([k, v]) => {
+    html += `<div class="tt-row"><strong>${k}：</strong>${v}</div>`;
+  });
+  tt.innerHTML = html;
+  tt.style.display = 'block';
+  positionTooltip(e);
+}
+
+function positionTooltip(e) {
+  const tt = document.getElementById('tooltip');
+  const x = e.clientX + 16;
+  const y = e.clientY + 8;
+  const maxX = window.innerWidth - 320;
+  const maxY = window.innerHeight - 200;
+  tt.style.left = Math.min(x, maxX) + 'px';
+  tt.style.top = Math.min(y, maxY) + 'px';
+}
+
+function hideTooltip() {
+  document.getElementById('tooltip').style.display = 'none';
+}
+
+document.addEventListener('mousemove', (e) => {
+  const tt = document.getElementById('tooltip');
+  if (tt.style.display === 'block') positionTooltip(e);
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.step-box')) hideTooltip();
+});
+</script>
+</body>
+</html>
