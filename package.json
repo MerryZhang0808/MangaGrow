@@ -5,9 +5,23 @@
     "dev": "concurrently -n fe,be -c blue,green \"cd comic-growth-record && npm run dev\" \"cd server && npm run dev\"",
     "dev:frontend": "cd comic-growth-record && npm run dev",
     "dev:backend": "cd server && npm run dev",
-    "install:all": "npm install && cd comic-growth-record && npm install && cd ../server && npm install"
+    "install:all": "npm install && cd comic-growth-record && npm install && cd ../server && npm install",
+    "typecheck": "cd comic-growth-record && npx tsc --noEmit && cd ../server && npx tsc --noEmit",
+    "lint": "cd comic-growth-record && npx eslint . && cd ../server && npx eslint .",
+    "lint:fix": "cd comic-growth-record && npx eslint --fix . && cd ../server && npx eslint --fix .",
+    "prepare": "husky"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.0.0"
+  },
+  "lint-staged": {
+    "comic-growth-record/**/*.{ts,tsx}": [
+      "npx eslint --fix"
+    ],
+    "server/**/*.ts": [
+      "npx eslint --fix"
+    ]
   }
 }

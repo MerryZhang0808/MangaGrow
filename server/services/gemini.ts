@@ -17,7 +17,7 @@ if (proxyUrl) {
 // C04: Model name constants - all backend services must reference these
 // Updated to use available models (2026-03)
 export const TEXT_MODEL = 'gemini-2.5-flash';
-export const IMAGE_MODEL = 'nano-banana-pro-preview';
+export const IMAGE_MODEL = 'gemini-3-pro-image-preview';
 
 // C01: API Key from server-side .env only
 export function getAiClient(): GoogleGenAI {

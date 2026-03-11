@@ -51,11 +51,12 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
     setIsContinueGenerating(true);
 
     try {
-      // 区分人物库角色：人物库角色不传外貌描述，让 AI 以 Q 版头像为准
-      const libraryCharNameSet = new Set(libraryCharacters.map(c => c.name.toLowerCase()));
+      // 人物库角色：文字描述 + 头像图片双重锚定（与 App.tsx 保持一致）
+      const libCharByName = new Map<string, Character>(libraryCharacters.map(c => [c.name.toLowerCase(), c]));
       const characterContext = storyCharacters.map(c => {
-        if (libraryCharNameSet.has(c.name.toLowerCase())) {
-          return `[人物: ${c.name}] 发型、发色、面部特征严格以上方Q版头像参考图为准；本分镜的服装以画面描述中写明的服装为准（若故事有特定着装则以描述为准，若无则参考头像服装）。`;
+        const libChar = libCharByName.get(c.name.toLowerCase());
+        if (libChar) {
+          return `[人物: ${c.name}]\n外貌特征（人物库）: ${libChar.description}\n⚠️ 该角色已提供Q版头像参考图，发型/发色/面部特征必须严格与头像一致。服装：优先使用画面描述中的服装，无描述时参考上述外貌特征。`;
         }
         return `[人物: ${c.name}]\n外貌特征: ${c.description}`;
       }).join('\n\n');
@@ -76,12 +77,14 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
         : null;
 
       for (const scene of pendingScenes) {
-        const sortedRefChars = getCharacterReferences(libraryCharacters, scene.script);
+        const sortedRefChars = getCharacterReferences(libraryCharacters, `${scene.script} ${scene.caption || ''}`);
         const referenceCharIds = sortedRefChars
           .map(r => libraryCharacters.find(c => c.name === r.name)?.id)
           .filter(Boolean) as string[];
 
         const continuityRef = previousGeneratedImage ? [previousGeneratedImage] : [];
+        // 角色快照：用已生成的分镜作为角色一致性参考
+        const snapshots = previousGeneratedImage ? [previousGeneratedImage] : [];
 
         try {
           const newImageUrl = await generateSceneImage({
@@ -92,6 +95,7 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
             objectContext,
             referenceCharIds,
             sceneReferenceImages: continuityRef,
+            characterSnapshots: snapshots,
             isUserPhoto: false
           });
 
@@ -133,11 +137,12 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
       const sceneToUpdate = scenes.find(s => s.id === id);
       const scriptToUse = newScript || sceneToUpdate?.script || "";
 
-      // 区分人物库角色：人物库角色不传外貌描述，让 AI 以 Q 版头像为准
-      const libraryCharNameSet = new Set(libraryCharacters.map(c => c.name.toLowerCase()));
+      // 人物库角色：文字描述 + 头像图片双重锚定（与 App.tsx 保持一致）
+      const libCharByName = new Map<string, Character>(libraryCharacters.map(c => [c.name.toLowerCase(), c]));
       const characterContext = storyCharacters.map(c => {
-        if (libraryCharNameSet.has(c.name.toLowerCase())) {
-          return `[人物: ${c.name}] 发型、发色、面部特征严格以上方Q版头像参考图为准；本分镜的服装以画面描述中写明的服装为准（若故事有特定着装则以描述为准，若无则参考头像服装）。`;
+        const libChar = libCharByName.get(c.name.toLowerCase());
+        if (libChar) {
+          return `[人物: ${c.name}]\n外貌特征（人物库）: ${libChar.description}\n⚠️ 该角色已提供Q版头像参考图，发型/发色/面部特征必须严格与头像一致。服装：优先使用画面描述中的服装，无描述时参考上述外貌特征。`;
         }
         return `[人物: ${c.name}]\n外貌特征: ${c.description}`;
       }).join('\n\n');
@@ -170,6 +175,19 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
         .map(r => libraryCharacters.find(c => c.name === r.name)?.id)
         .filter(Boolean) as string[];
 
+      // 角色快照：找到其他已生成的分镜作为角色一致性参考（对临时人物尤其重要）
+      const characterSnapshots: string[] = [];
+      if (sceneToUpdate) {
+        // 优先用相邻分镜（前一张或后一张），作为角色外观参考
+        const adjacentScene = scenes.find(s =>
+          s.id !== id && s.imageUrl && !s.isLoading &&
+          Math.abs(s.sceneNumber - sceneToUpdate.sceneNumber) === 1
+        ) || scenes.find(s => s.id !== id && s.imageUrl && !s.isLoading);
+        if (adjacentScene?.imageUrl) {
+          characterSnapshots.push(adjacentScene.imageUrl);
+        }
+      }
+
       const newImageUrl = await generateSceneImage({
         script: scriptToUse,
         style,
@@ -178,6 +196,7 @@ export const DisplayPanel: React.FC<DisplayPanelProps> = ({
         objectContext,
         referenceCharIds,
         sceneReferenceImages,
+        characterSnapshots,
         isUserPhoto: specificRefImage.length > 0
       });
 

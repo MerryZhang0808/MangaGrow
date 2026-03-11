@@ -1,11 +1,9 @@
 # Tasks - MangaGrow 漫画成长记录
 
 ## 概述
-共 39 个任务：1 个 POC 任务，38 个开发任务。
-T-01~T-23 已完成（基础模块拆分 + 核心管线 + 性能优化 + 人物库优化 + 后端迁移）。
-T-24~T-29 已完成（故事标题 + 自动保存 + 历史记录 + 网格海报导出）。
-T-30~T-33 已完成（标题提前 + 锚定帧 + 人物规则松绑 + 标题格式）。
-T-34~T-38 为 v1.7 新任务（手动保存改造 + 成长相册 + PDF 成长故事书）。
+共 44+5 个任务：1 个 POC 任务，44 个已完成开发任务，5 个新增开发任务（v2.0 视频转漫画）。
+T-01~T-44 + FIX-03 已全部完成（基础模块 + 核心管线 + 后端迁移 + 功能增强 + 存储重构）。
+T-45~T-49 为 v2.0 新任务（视频转漫画功能：后端视频分析 + 前端视频上传 + 生成流程集成）。
 POC-01 与开发任务独立，结果影响 T-05。
 
 ---
@@ -1388,10 +1386,214 @@ T-28 (导航栏 + DisplayPanel UI 更新) ──→ T-29
 
 ---
 
+### [T-45] 后端视频分析服务（videoAnalyzer + API 端点）
+- **目的**：实现视频内容理解和关键帧提取的后端服务，支持 Gemini Video Understanding
+- **方案引用**：Architecture.md v2.0 → videoAnalyzer 模块 / 视频转漫画技术方案
+- **新建文件**：
+  - `server/services/videoAnalyzer.ts`：视频分析核心逻辑
+- **修改文件**：
+  - `server/types.ts`：新增 `VideoAnalysis`、`VideoKeyFrame` 类型
+  - `server/routes/ai.ts`：新增 `POST /api/ai/analyze-video` 端点
+- **实现要求**：
+  1. `VideoAnalysis` 类型：`{ description: string; keyFrames: VideoKeyFrame[] }`
+  2. `VideoKeyFrame` 类型：`{ timestamp: string; description: string; imageBase64: string }`
+  3. `analyzeVideo(videoBase64, mimeType)` 实现：
+     - 将视频 base64 作为 inlineData 传入 TEXT_MODEL（Gemini Video Understanding）
+     - 提示词要求 AI 完成两个任务：内容理解（100-200字）+ 关键帧选取（2-4 帧）
+     - 使用 `responseMimeType: "application/json"` 要求 JSON 输出
+     - 解析响应获取 description 和 keyFrames
+     - 对每个关键帧：从视频中截取帧图片，通过 imageStorage.saveImage('scenes', ...) 存储到磁盘
+     - 返回 VideoAnalysis（关键帧 imageBase64 替换为磁盘 URL）
+  4. `POST /api/ai/analyze-video` 路由：
+     - 接收 `{ videoBase64: string, mimeType: string }`
+     - 调用 `videoAnalyzer.analyzeVideo()`
+     - 超时设置 120 秒
+     - 成功：`{ success: true, data: VideoAnalysis }`
+     - 失败：`{ success: false, error: '...' }`
+- **约束**：
+  - 必须遵守 C03（withRetry）、C04（模型常量）、C11（JSON 验证）、C24（标准响应格式）、C48（不保存视频原文件）、C49（120 秒超时）
+- **验收标准**：
+  - [ ] `videoAnalyzer.ts` 导出 `analyzeVideo`
+  - [ ] `POST /api/ai/analyze-video` 端点可正常访问
+  - [ ] 传入视频 base64 后返回 description + 2-4 个关键帧
+  - [ ] 关键帧图片保存到 data/images/scenes/
+  - [ ] 超时 120 秒后返回错误
+  - [ ] 无 TypeScript 编译错误
+- **依赖**：基于 T-23（后端基础设施）
+- **状态**：✅ 已完成
+
+---
+
+### [T-46] 前端类型定义 + apiClient + inputService 视频支持
+- **目的**：前端新增视频相关类型，apiClient 和 inputService 新增视频分析方法
+- **方案引用**：Architecture.md v2.0 → apiClient 模块 / inputService 模块
+- **修改文件**：
+  - `comic-growth-record/types.ts`：新增 `VideoAnalysis`、`VideoKeyFrame` 类型
+  - `comic-growth-record/services/apiClient.ts`：新增 `analyzeVideo()` 方法
+  - `comic-growth-record/services/inputService.ts`：新增 `analyzeVideo()` 薄封装
+- **实现要求**：
+  1. `VideoAnalysis` 类型：`{ description: string; keyFrames: VideoKeyFrame[] }`
+  2. `VideoKeyFrame` 类型：`{ timestamp: string; description: string; imageUrl: string }`
+  3. apiClient 新增：`analyzeVideo(videoBase64: string, mimeType: string): Promise<VideoAnalysis>`
+     - 调用 `postAi('analyze-video', { videoBase64, mimeType })`
+     - 超时设置 120 秒（覆盖默认 fetch timeout）
+  4. inputService 新增：`analyzeVideo(videoFile: File): Promise<VideoAnalysis>`
+     - 将 File 转为 base64（FileReader）
+     - 推断 mimeType（file.type）
+     - 调用 apiClient.analyzeVideo()
+- **约束**：
+  - 必须遵守 C02（通过 services 层）、C26（不 import @google/genai）
+- **验收标准**：
+  - [ ] types.ts 导出 VideoAnalysis、VideoKeyFrame 类型
+  - [ ] apiClient.analyzeVideo() 可正常调用后端
+  - [ ] inputService.analyzeVideo() 接收 File 对象，返回 VideoAnalysis
+  - [ ] 无 TypeScript 编译错误
+- **依赖**：依赖 [T-45]（后端 API 就绪）
+- **状态**：✅ 已完成
+
+---
+
+### [T-47] InputPanel 视频上传 UI
+- **目的**：在输入面板中新增视频上传按钮、前端校验、分析状态显示、关键帧缩略图展示
+- **方案引用**：Architecture.md v2.0 → 视频分析数据流 / Product-Spec v2.0 → 素材上传区
+- **修改文件**：
+  - `comic-growth-record/components/InputPanel.tsx`：新增视频上传 UI
+  - `comic-growth-record/App.tsx`：新增视频相关状态（videoAnalysis, isVideoAnalyzing）
+- **实现要求**：
+  1. InputPanel 素材上传区：
+     - 「添加照片」和「添加视频」按钮并排（图片图标 + 视频图标）
+     - 视频上传触发 `<input type="file" accept="video/mp4,video/quicktime">`
+  2. 前端校验（C44）：
+     - 格式：仅 MP4/MOV
+     - 时长：≤3 分钟（通过 video element loadedmetadata 事件获取 duration）
+     - 大小：≤500MB（file.size）
+     - 数量：最多 1 段
+     - 不满足时显示具体拒绝原因
+  3. 视频分析状态显示：
+     - 上传中：视频缩略图卡片（80x80px）+ 时长标签 + 进度条
+     - 分析中：「AI 分析中...」+ 动画
+     - 分析完成：关键帧缩略图（与照片缩略图并排，带"关键帧"标签），可删除单个帧
+     - 失败：错误提示 + 重试按钮
+  4. App.tsx 新增状态：
+     - `videoAnalysis: VideoAnalysis | null`
+     - `isVideoAnalyzing: boolean`
+     - `videoFile: File | null`（保留 File 对象用于重试）
+  5. 视频上传后立即触发分析（C45），不等待用户点击「生成漫画」
+  6. 用户可在分析期间继续写文字、选风格、上传照片
+  7. 删除关键帧：从 videoAnalysis.keyFrames 数组中移除
+- **约束**：
+  - 必须遵守 C44（前端校验）、C45（立即分析）、C46（帧数 AI 决定，用户只可删除）
+- **验收标准**：
+  - [ ] 「添加视频」按钮正常工作
+  - [ ] 格式/时长/大小/数量校验正确拒绝不合规视频
+  - [ ] 上传后立即开始分析，显示分析状态
+  - [ ] 分析完成后展示关键帧缩略图
+  - [ ] 用户可删除单个关键帧
+  - [ ] 分析失败时显示错误 + 重试
+  - [ ] 无 TypeScript 编译错误
+- **依赖**：依赖 [T-46]（前端类型和 API 方法）
+- **状态**：✅ 已完成
+
+---
+
+### [T-48] App.tsx handleGenerate 视频路径集成
+- **目的**：在生成漫画流程中集成视频关键帧：关键帧决定分镜数，照片为额外参考
+- **方案引用**：Architecture.md v2.0 → 主流程数据流（视频路径）/ 约束 C46、C47
+- **修改文件**：
+  - `comic-growth-record/App.tsx`：handleGenerate 函数增加视频分支
+- **实现要求**：
+  1. handleGenerate 判断视频输入：
+     - `videoAnalysis?.keyFrames.length > 0` → 视频路径
+     - 否则保持现有照片/纯文字路径
+  2. 视频路径 - storyService 输入：
+     - `text`：用户输入文字 + videoAnalysis.description（视频描述追加到文字输入）
+     - `imageAnalysis`：照片分析结果（如有）
+     - `imageCount`：keyFrames.length（关键帧数量决定分镜数）
+  3. 视频路径 - 分镜数量：
+     - `initialScenes` 数量 = keyFrames.length（1:1 对应）
+  4. 视频路径 - 图片生成：
+     - 并行调用 imageService（类似有照片路径）
+     - 每张分镜使用对应关键帧的 imageUrl 作为 sceneReferenceImages
+     - 如果同时有照片（inputImages），照片作为额外视觉参考注入（所有分镜共享），不增加分镜数
+  5. 无视频时：保持现有逻辑不变（有照片并行/无照片串行链式）
+- **约束**：
+  - 必须遵守 C46（关键帧 1:1 对应分镜）、C47（照片为额外参考不增加分镜）、C38（无视频无照片时链式策略不变）
+- **验收标准**：
+  - [ ] 有视频关键帧时：分镜数 = 关键帧数
+  - [ ] 每个分镜使用对应关键帧图片作为场景参考
+  - [ ] 视频 + 照片混合时：照片不增加分镜，作为额外参考
+  - [ ] 纯文字/纯照片路径行为不变
+  - [ ] 无 TypeScript 编译错误
+- **依赖**：依赖 [T-47]（App.tsx 已有 videoAnalysis 状态）
+- **状态**：✅ 已完成
+
+---
+
+### [T-49] v2.0 集成验证 + 文档同步
+- **目的**：端到端验证视频转漫画功能，同步约束文档和架构图
+- **方案引用**：Architecture.md v2.0 → 约束 C15（架构图同步）、C44-C49
+- **修改文件**：
+  - `.claude/rules/dev-constraints.md`：同步 Architecture.md v2.0 约束 C44-C49
+  - `architecture-diagram.html`：新增 videoAnalyzer 模块、视频分析数据流
+  - `agent-flow-diagram.html`：新增视频分析流程
+- **实现要求**：
+  1. 端到端测试：
+     - 上传 MP4 视频 → 前端校验通过 → 分析中状态 → 关键帧缩略图展示
+     - 格式/时长/大小不合规视频 → 前端拒绝并提示
+     - 删除单个关键帧 → 缩略图消失
+     - 关键帧 + 文字 → 生成漫画 → 分镜数 = 关键帧数
+     - 关键帧 + 照片 + 文字 → 生成漫画 → 分镜数 = 关键帧数（照片为额外参考）
+     - 纯文字/纯照片 → 生成漫画 → 行为不变
+     - 视频分析失败 → 错误提示 + 重试按钮
+  2. dev-constraints.md 新增 C44-C49
+  3. architecture-diagram.html 更新（新增 videoAnalyzer 模块）
+  4. agent-flow-diagram.html 更新（新增视频分析路径）
+- **验收标准**：
+  - [ ] 所有端到端测试通过
+  - [ ] dev-constraints.md 与 Architecture.md 约束清单一致（C01-C49，C28/C32/C33 标废除）
+  - [ ] architecture-diagram.html 反映 v2.0 架构
+  - [ ] agent-flow-diagram.html 反映视频分析流程
+  - [ ] TypeScript 编译无错误（前后端）
+  - [ ] `npm run dev` 正常启动，无错误
+- **依赖**：依赖 T-45, T-46, T-47, T-48
+- **状态**：✅ 已完成
+
+---
+
+## v2.0 依赖关系图
+
+```
+=== v2.0 视频转漫画（待开发）===
+
+T-45 (后端 videoAnalyzer + API)
+  │
+  └──→ T-46 (前端类型 + apiClient + inputService)
+          │
+          └──→ T-47 (InputPanel 视频上传 UI)
+                  │
+                  └──→ T-48 (App.tsx handleGenerate 视频集成)
+                          │
+                          └──→ T-49 (集成验证 + 文档同步)
+```
+
+**推荐执行顺序**：
+
+| 阶段 | 任务 | 说明 |
+|------|------|------|
+| Phase 1-22 | T-01~T-44, FIX-03 | ✅ 全部完成 |
+| **Phase 23** | **T-45** | **后端视频分析服务（videoAnalyzer + API 端点）** |
+| **Phase 24** | **T-46** | **前端类型定义 + apiClient + inputService** |
+| **Phase 25** | **T-47** | **InputPanel 视频上传 UI** |
+| **Phase 26** | **T-48** | **App.tsx handleGenerate 视频路径集成** |
+| **Phase 27** | **T-49** | **集成验证 + 文档同步** |
+
+---
+
 ## 变更记录
 
 | 日期 | 触发来源 | 变更内容 | 受影响任务 |
 |------|---------|---------|-----------|
+| 2026-03-06 | Architecture v2.0（视频转漫画） | 新增 T-45~T-49：后端视频分析、前端类型+API、视频上传UI、生成流程集成、集成验证 | T-45~T-49 |
 | 2026-02-27 | Architecture v1.8（存储重构 + 历史双栏） | 新增 T-39~T-44；T-34/T-36/T-37 标记受影响（已完成任务不重做，由新任务覆盖） | T-34⚠️, T-36⚠️, T-37⚠️, T-39~T-44 |
 | 2026-02-09 | Architecture v1.0 | 初始任务拆分 | 全部 |
 | 2026-02-10 | Phase 1-5 执行完成 | T-01~T-10 全部完成，geminiService.ts 已删除 | 全部 |

@@ -69,8 +69,28 @@ export function updateCharacterDescription(
   return `${genderText}，${ageText}${specificAgeText}，${features}`;
 }
 
+// Check if a character name is mentioned in text, with fuzzy matching support
+// Handles: exact match, surname-only (2+ char surnames), partial name variations
+function isCharMentioned(name: string, text: string): boolean {
+  const nameLower = name.toLowerCase();
+  // Exact full name match
+  if (text.includes(nameLower)) return true;
+  // For Chinese names (2-4 chars): try matching without surname (last 1-2 chars)
+  // e.g. "小明" in "明明很开心" won't match, but "张小明" checking "小明" will
+  if (nameLower.length >= 3) {
+    const givenName = nameLower.slice(1); // remove surname
+    if (givenName.length >= 2 && text.includes(givenName)) return true;
+  }
+  // For names with common prefixes like 小/阿: check without prefix
+  if (nameLower.length >= 3 && (nameLower.startsWith('小') || nameLower.startsWith('阿'))) {
+    const withoutPrefix = nameLower.slice(1);
+    if (withoutPrefix.length >= 2 && text.includes(withoutPrefix)) return true;
+  }
+  return false;
+}
+
 // Filter and sort character references relevant to a scene script
-// Returns characters mentioned in the script first, then others as fallback
+// Returns characters mentioned in the script, with fuzzy name matching
 export function getCharacterReferences(
   characters: Character[],
   sceneScript: string
@@ -79,9 +99,8 @@ export function getCharacterReferences(
 
   const withAvatar = characters.filter(c => c.avatarUrl);
 
-  // Split into: mentioned in script vs not mentioned
-  const mentioned = withAvatar.filter(c => scriptLower.includes(c.name.toLowerCase()));
-  const notMentioned = withAvatar.filter(c => !scriptLower.includes(c.name.toLowerCase()));
+  // Split into: mentioned in script vs not mentioned (with fuzzy matching)
+  const mentioned = withAvatar.filter(c => isCharMentioned(c.name, scriptLower));
 
   // Only pass characters actually mentioned in the scene script
   // Passing unmentioned characters causes them to appear in the panel (legs, partial figures, etc.)

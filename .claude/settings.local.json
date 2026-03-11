@@ -52,7 +52,16 @@
       "Bash(npx kill-port:*)",
       "Bash(cmd:*)",
       "Bash(gh auth:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(npm run:*)",
+      "Bash(npx tsx:*)",
+      "Bash(npx vite:*)",
+      "WebFetch(domain:steipete.me)",
+      "Bash(npx husky:*)",
+      "Bash(npx eslint:*)",
+      "Bash(cd C:/Users/Administrator/MangaGrow-latest && npx -w server tsc --noEmit 2>&1)",
+      "Bash(cd \"C:/Users/Administrator/MangaGrow-latest/server\" && npx vitest run 2>&1)",
+      "Bash(cd \"C:/Users/Administrator/MangaGrow-latest\" && npx concurrently -n fe,be -c blue,green \"cd comic-growth-record && npx vite --host\" \"cd server && node --no-warnings=ExperimentalWarning --import tsx index.ts\" 2>&1)"
     ]
   }
 }

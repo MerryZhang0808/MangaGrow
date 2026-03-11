@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { transcribeAudio, analyzeImages } from '../services/inputAnalyzer.js';
+import { analyzeVideo } from '../services/videoAnalyzer.js';
 import { generateStory, generateYearlySummary } from '../services/storyPipeline.js';
 import { generateSceneImage, CharacterImageRef } from '../services/imageGenerator.js';
 import { analyzeCharacter, detectGenderAge, generateAvatar } from '../services/characterAnalyzer.js';
@@ -53,7 +54,7 @@ router.post('/generate-story', async (req: Request, res: Response) => {
 // POST /api/ai/generate-image
 router.post('/generate-image', async (req: Request, res: Response) => {
   try {
-    const { script, style, ratio, characterContext, objectContext, referenceCharIds, sceneReferenceImages, characterSnapshots, characterStyleMode, isUserPhoto } = req.body;
+    const { script, style, ratio, characterContext, objectContext, referenceCharIds, sceneReferenceImages, characterSnapshots, isUserPhoto } = req.body;
 
     // Resolve referenceCharIds to actual image data from DB + disk
     const referenceChars: CharacterImageRef[] = [];
@@ -61,7 +62,7 @@ router.post('/generate-image', async (req: Request, res: Response) => {
     if (referenceCharIds && referenceCharIds.length > 0) {
       const db = getDb();
       for (const charId of referenceCharIds) {
-        const row = db.prepare('SELECT name, avatar_path, reference_sheet_path, original_photo_paths FROM characters WHERE id = ?').get(charId) as any;
+        const row = db.prepare('SELECT name, description, avatar_path, reference_sheet_path, original_photo_paths FROM characters WHERE id = ?').get(charId) as any;
         console.log('[AI Route] DB row for char', charId, ':', row ? { name: row.name, avatar_path: row.avatar_path } : null);
         if (row && row.avatar_path) {
           try {
@@ -71,6 +72,7 @@ router.post('/generate-image', async (req: Request, res: Response) => {
             console.log('[AI Route] Avatar loaded, size:', avatar.data.length, 'bytes');
             const ref: CharacterImageRef = {
               name: row.name,
+              description: row.description || '',
               avatarData: avatar.data,
               avatarMimeType: avatar.mimeType
             };
@@ -148,7 +150,6 @@ router.post('/generate-image', async (req: Request, res: Response) => {
       referenceChars,
       sceneReferenceImages: parsedSceneRefs,
       characterSnapshots: parsedSnapshots, // v1.9
-      characterStyleMode, // v1.9: 服装策略
       isUserPhoto
     });
 
@@ -179,7 +180,8 @@ router.post('/analyze-character', async (req: Request, res: Response) => {
 // POST /api/ai/generate-avatar
 router.post('/generate-avatar', async (req: Request, res: Response) => {
   try {
-    let { name, imageData, mimeType, description, gender, ageGroup, specificAge, characterId } = req.body;
+    const { name, description, gender, ageGroup, specificAge, characterId } = req.body;
+    let { imageData, mimeType } = req.body;
     if (!name || !imageData || !description) {
       return res.status(400).json({ success: false, error: 'name, imageData, and description are required' });
     }
@@ -257,6 +259,31 @@ router.post('/generate-summary', async (req: Request, res: Response) => {
     // C40: never return 500 — frontend will use degraded fallback text
     console.error('[AI Route] generate-summary failed:', e.message);
     res.json({ success: false, error: e.message });
+  }
+});
+
+// POST /api/ai/analyze-video (v2.0)
+// C49: 120-second timeout for video analysis
+// C48: only key frame images saved to disk, video not persisted
+// C24: standard JSON response
+router.post('/analyze-video', async (req: Request, res: Response) => {
+  // C49: set 120s timeout
+  req.setTimeout(120000);
+  res.setTimeout(120000);
+
+  try {
+    const { videoBase64, mimeType } = req.body;
+    if (!videoBase64) {
+      return res.status(400).json({ success: false, error: 'videoBase64 is required' });
+    }
+    if (!mimeType) {
+      return res.status(400).json({ success: false, error: 'mimeType is required' });
+    }
+    const result = await analyzeVideo(videoBase64, mimeType);
+    res.json({ success: true, data: result });
+  } catch (e: any) {
+    console.error('[AI Route] analyze-video failed:', e.message);
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 

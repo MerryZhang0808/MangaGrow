@@ -58,7 +58,7 @@ export async function postAi<T>(endpoint: string, body: object): Promise<T> {
 
 // === Character CRUD ===
 
-import type { Character } from '../types';
+import type { Character, VideoAnalysis } from '../types';
 
 export async function getCharacters(): Promise<Character[]> {
   return fetchApi<Character[]>('/characters');
@@ -105,6 +105,12 @@ export async function deleteStory(id: string): Promise<void> {
   return fetchApi<void>(`/stories/${id}`, {
     method: 'DELETE'
   });
+}
+
+// === Video analysis (v2.0) ===
+
+export async function analyzeVideo(videoBase64: string, mimeType: string): Promise<VideoAnalysis> {
+  return postAi<VideoAnalysis>('analyze-video', { videoBase64, mimeType });
 }
 
 // === AI helpers ===

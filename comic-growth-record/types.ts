@@ -108,6 +108,19 @@ export interface StorySummary {
   sceneCount: number;
 }
 
+// v2.0: Video analysis types
+export interface VideoKeyFrame {
+  index: number;
+  timestamp: string;
+  description: string;
+  imageUrl: string;          // server URL from /api/images/...
+}
+
+export interface VideoAnalysis {
+  contentDescription: string;
+  keyFrames: VideoKeyFrame[];
+}
+
 export interface AppState {
   inputText: string;
   inputImages: string[]; // Base64 strings

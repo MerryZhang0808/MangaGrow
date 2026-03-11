@@ -1,5 +1,6 @@
-import { ImageAnalysis } from '../types';
+import { ImageAnalysis, VideoAnalysis } from '../types';
 import { postAi } from './apiClient';
+import { analyzeVideo as apiAnalyzeVideo } from './apiClient';
 import { parseDataUri } from '../utils/imageUtils';
 
 // Transcribe audio to text via backend
@@ -32,4 +33,23 @@ export const analyzeImages = async (imageUris: string[]): Promise<ImageAnalysis[
   const images = imageUris.map(uri => parseDataUri(uri));
 
   return postAi<ImageAnalysis[]>('analyze-images', { images });
+};
+
+// v2.0: Analyze video via backend
+// C45: called immediately on upload, async
+export const analyzeVideo = async (videoFile: File): Promise<VideoAnalysis> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64Video = (reader.result as string).split(',')[1];
+        const result = await apiAnalyzeVideo(base64Video, videoFile.type);
+        resolve(result);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(videoFile);
+  });
 };

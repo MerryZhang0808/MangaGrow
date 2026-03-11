@@ -10,7 +10,7 @@ AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接
 **后端**：Node.js + Express + TypeScript
 **数据库**：SQLite（better-sqlite3，同步 API）
 **文件存储**：本地磁盘 `data/images/`
-**AI 模型**：gemini-3-flash-preview（文本）、gemini-3-pro-image-preview（图片）
+**AI 模型**：gemini-2.5-flash（文本）、nano-banana-pro-preview（图片）
 **运行方式**：前端 :3000（Vite dev server）+ 后端 :3001（Express），Vite proxy 转发 `/api/*`
 
 ---
@@ -55,6 +55,7 @@ AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接
   │   ├── imageGenerator.ts      ← 图片生成（提示词构造、参考图注入）
   │   ├── characterAnalyzer.ts   ← 角色分析（照片分析、头像生成、性别/年龄识别）
   │   ├── inputAnalyzer.ts       ← 输入处理（语音转文字、图片分析）
+  │   ├── videoAnalyzer.ts       ← 视频分析（内容理解 + 关键帧提取）  ← v2.0 新增
   │   ├── styleConfig.ts         ← 风格参数配置（4 组提示词）
   │   └── imageStorage.ts        ← 图片文件管理（保存、读取、删除）
   │
@@ -95,6 +96,7 @@ AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接
 | imageGenerator | 分镜图片生成（提示词构造、参考图注入）| `server/services/imageGenerator.ts` | gemini, styleConfig, imageStorage |
 | characterAnalyzer | 角色分析、头像生成、性别/年龄识别 | `server/services/characterAnalyzer.ts` | gemini, imageStorage |
 | inputAnalyzer | 语音转文字、图片分析 | `server/services/inputAnalyzer.ts` | gemini |
+| videoAnalyzer | 视频内容理解 + 关键帧提取（Gemini Video Understanding） | `server/services/videoAnalyzer.ts` | gemini |
 | imageStorage | 图片文件管理：保存 base64 到磁盘、生成唯一文件名、删除 | `server/services/imageStorage.ts` | 无 |
 | db | SQLite 数据库连接和 schema 管理 | `server/db/index.ts`, `server/db/schema.ts` | 无 |
 
@@ -119,6 +121,7 @@ AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接
 | `getStory(id)` | `string` | `Promise<StoryDetail>` | 获取故事详情（含 posterUrl、inputText、inputPhotos） |
 | `deleteStory(id)` | `string` | `Promise<void>` | 删除故事（同步删除 poster + input 磁盘文件） |
 | `generateYearlySummary(stories)` | `SummaryStoryItem[]` | `Promise<string>` | 调用 `postAi('generate-summary', ...)` 生成年度总结文字（输入为 title + inputText） |
+| `analyzeVideo(videoBase64, mimeType)` | `string`, `string` | `Promise<VideoAnalysis>` | v2.0 新增：调用 `postAi('analyze-video', ...)` 分析视频内容 + 提取关键帧 |
 
 **约束**：
 - 前端所有后端通信必须通过此模块，不允许在组件或其他 service 中直接 fetch
@@ -138,7 +141,7 @@ AI 能力通过 Gemini API 实现，API Key 仅存在服务端，前端不直接
 | `getAiClient()` | 无 | `GoogleGenAI` 实例 | 获取 API 客户端（读取 `process.env.GEMINI_API_KEY`） |
 | `withRetry<T>(operation, retries?)` | `() => Promise<T>`, `number` | `Promise<T>` | 指数退避重试，默认 3 次，4xx 不重试（429 除外） |
 | `SAFETY_SETTINGS` | - | `SafetySetting[]` | 全局安全设置常量 |
-| `TEXT_MODEL` | - | `string` | 文本模型常量 = `'gemini-3-flash-preview'` |
+| `TEXT_MODEL` | - | `string` | 文本模型常量 = `'gemini-2.5-flash'` |
 | `IMAGE_MODEL` | - | `string` | 图片模型常量 = `'gemini-3-pro-image-preview'` |
 
 **约束**：
@@ -260,6 +263,7 @@ CREATE TABLE IF NOT EXISTS stories (
 |--------|------|------|------|
 | `transcribeAudio(audioBlob)` | `Blob` | `Promise<string>` | 调用 `apiClient.postAi('transcribe-audio', ...)` |
 | `analyzeImages(imageUris)` | `string[]` | `Promise<ImageAnalysis[]>` | 调用 `apiClient.postAi('analyze-images', ...)` |
+| `analyzeVideo(videoFile)` | `File` | `Promise<VideoAnalysis>` | v2.0 新增：调用 `apiClient.postAi('analyze-video', ...)` |
 
 **后端 inputAnalyzer**（完整逻辑，迁移自前端）：
 
@@ -270,14 +274,78 @@ CREATE TABLE IF NOT EXISTS stories (
 
 **后端内部流程（analyzeImages）**：
 1. 所有图片并行处理（Promise.all），每张图独立压缩（maxWidth=800, quality=0.6）+ 分析
-2. 调用 TEXT_MODEL（gemini-3-flash-preview）分析
+2. 调用 TEXT_MODEL（gemini-2.5-flash）分析
 3. 解析 JSON 结果，按原始顺序排序返回
 4. 单张分析失败时返回降级描述，不中断整体流程
 
 **约束**：
-- 图片分析模型必须统一为 `TEXT_MODEL`（gemini-3-flash-preview）
+- 图片分析模型必须统一为 `TEXT_MODEL`（gemini-2.5-flash）
 - 单张图片分析失败不允许中断整体流程，必须返回降级结果
 - 图片发送前必须经过压缩（防止 payload 过大导致 500）
+
+---
+
+### videoAnalyzer 模块（后端，v2.0 新增）
+
+**职责**：分析用户上传的视频，理解视频内容并提取关键帧。使用 Gemini Video Understanding API。
+
+**接口定义**：
+
+| 函数名 | 输入 | 输出 | 说明 |
+|--------|------|------|------|
+| `analyzeVideo(videoBase64, mimeType)` | `string`, `string` | `Promise<VideoAnalysis>` | 视频内容理解 + 关键帧提取 |
+
+**VideoAnalysis 类型**（新增于 `server/types.ts`）：
+```typescript
+interface VideoAnalysis {
+  description: string;        // 视频内容文字描述（100-200字）
+  keyFrames: VideoKeyFrame[]; // 2-4 个关键帧
+}
+
+interface VideoKeyFrame {
+  timestamp: string;          // 时间戳（如 "00:03"）
+  description: string;        // 这一帧的画面描述
+  imageBase64: string;        // 关键帧图片 base64（由 Gemini 从视频中截取）
+}
+```
+
+**前端 VideoAnalysis 类型**（新增于 `comic-growth-record/types.ts`）：
+```typescript
+interface VideoAnalysis {
+  description: string;
+  keyFrames: VideoKeyFrame[];
+}
+
+interface VideoKeyFrame {
+  timestamp: string;
+  description: string;
+  imageUrl: string;           // 前端用 URL（后端保存后返回 /api/images/scenes/xxx.png）
+}
+```
+
+**内部流程**：
+1. 接收视频 base64 + mimeType（`video/mp4` 或 `video/quicktime`）
+2. 调用 TEXT_MODEL（gemini-2.5-flash，支持 Video Understanding），传入视频 inlineData + 分析提示词
+3. 提示词要求 AI 完成两个任务：
+   - 任务一：视频内容理解（100-200字描述，含场景/人物/动作/情绪/物品/声音线索）
+   - 任务二：关键帧提取（2-4 个代表故事发展的关键时刻，含时间戳和描述）
+4. 解析 JSON 响应，提取 description 和 keyFrames
+5. 对每个关键帧：根据时间戳从视频中截取帧图片（通过 Gemini 的视频帧提取能力），转为 base64
+6. 返回 VideoAnalysis 对象
+
+**关键帧提取策略**：
+- AI 自动决定帧数（2-4 个），基于视频内容丰富度
+- 每帧必须代表故事的一个阶段（起承转合），帧间有叙事推进
+- 优先选择人物表情清晰、动作有代表性的画面
+- 关键帧图片存储到 `data/images/scenes/`（通过 imageStorage），返回 URL
+
+**约束**：
+- 必须使用 `TEXT_MODEL` 调用 Video Understanding（gemini-2.5-flash 支持视频输入）
+- 必须通过 `withRetry` 包装 API 调用（C03）
+- 视频大小由前端校验（≤500MB、≤3分钟、MP4/MOV），后端不重复校验大小但校验格式
+- 关键帧图片必须存储到磁盘（通过 imageStorage.saveImage('scenes', ...)），返回 URL 给前端
+- 视频分析失败时必须返回明确错误信息，不允许静默失败
+- 单次最多处理 1 段视频
 
 ---
 
@@ -1045,21 +1113,60 @@ interface HistoryPanelProps {
 
 ---
 
+### 视频转漫画 技术方案（v2.0 新增）
+
+**需求引用**：Product-Spec.md v2.0 → 视频上传、视频内容分析、关键帧提取
+
+**方案选定**：Gemini Video Understanding（TEXT_MODEL）+ 服务端关键帧存储
+
+**方案描述**：
+1. 用户上传视频（MP4/MOV，≤3分钟，≤500MB），前端即时校验后发送到后端
+2. 后端 `videoAnalyzer.analyzeVideo()` 将视频 base64 作为 inlineData 传入 Gemini TEXT_MODEL（支持 Video Understanding）
+3. AI 同时完成两个任务：内容理解（100-200字描述）+ 关键帧选取（2-4 帧，含时间戳和描述）
+4. 后端截取关键帧图片，存储到磁盘，返回 URL 给前端
+5. 前端展示关键帧缩略图，用户可删除不需要的帧
+6. 点击生成时：关键帧数量 1:1 决定分镜数；关键帧图片作为场景参考图；视频描述作为故事输入
+
+**选型理由**：
+- 选 Gemini Video Understanding：Gemini 2.5 flash 原生支持视频输入（inlineData），无需额外的视频处理库
+- 不选 FFmpeg 抽帧 + 图片分析：需要服务端安装 FFmpeg，增加部署复杂度；AI 选帧比均匀抽帧更有叙事价值
+- 不选前端抽帧（Canvas + Video API）：浏览器视频解码受限，大文件容易 OOM；无法利用 AI 选择叙事关键帧
+- 关键帧存储到磁盘：与现有 imageStorage 机制一致，复用 scenes 目录
+
+**实现约束**：
+- 视频校验严格在前端完成（格式、时长、大小），不满足直接拒绝，不发送到后端
+- 后端接收 base64 视频，不保存视频原文件到磁盘（只保存关键帧图片）
+- 视频分析在上传时立即触发（异步），不等待用户点击「生成漫画」
+- 关键帧图片存储路径：`data/images/scenes/`（复用现有目录）
+- 关键帧数量由 AI 决定（2-4 帧），前端不可手动添加帧，只可删除
+- 删除关键帧后分镜数同步减少
+- 视频 + 照片可同时上传：关键帧决定分镜骨架，照片作为额外视觉参考
+- 视频分析超时设置为 120 秒（视频处理耗时较长）
+
+**状态**：✅ 确定
+
+---
+
 ## 数据流
 
 ### 主流程数据流（用户点击「生成漫画」）
 
 ```
-用户输入文字/语音/照片
+用户输入文字/语音/照片/视频
       │
       ▼
 [前端 InputPanel] ──── 语音 ──→ inputService → POST /api/ai/transcribe-audio → 文字
-      │                          照片 ──→ inputService → POST /api/ai/analyze-images → ImageAnalysis[]
+      │                  照片 ──→ inputService → POST /api/ai/analyze-images → ImageAnalysis[]
+      │                  视频 ──→ inputService → POST /api/ai/analyze-video → VideoAnalysis
+      │                           （v2.0：上传后立即分析，不等用户点击生成）
+      │                           → 关键帧展示在输入区（用户可删除），keyFrames 决定分镜数
       │
       ▼
 [前端 App.tsx handleGenerate]
       │
-      ├─ 1. 调用 inputService（→ 后端 inputAnalyzer → Gemini）
+      ├─ 1. 调用 inputService（→ 后端 inputAnalyzer / videoAnalyzer → Gemini）
+      │     ├─ 照片分析（如有）→ ImageAnalysis[]
+      │     └─ 视频分析结果已缓存（上传时已完成）→ VideoAnalysis（含 keyFrames）
       │
       ├─ 2. 调用 storyService（→ POST /api/ai/generate-story）
       │     [后端 storyPipeline 执行 4 步管线]
@@ -1073,10 +1180,14 @@ interface HistoryPanelProps {
       │
       └─ 4. 前端控制条件并行生成分镜图片
             │
-            ├─ 有用户照片 → 并行调用 imageService（→ POST /api/ai/generate-image）
+            ├─ 有视频关键帧 → 并行调用 imageService（→ POST /api/ai/generate-image）
+            │   每张图使用对应关键帧图片 URL 作为场景参考（关键帧 1:1 对应分镜）
+            │   照片（如有）作为额外视觉参考注入，不增加分镜数
+            │
+            ├─ 有用户照片（无视频）→ 并行调用 imageService（→ POST /api/ai/generate-image）
             │   每张图使用对应的用户照片 base64 作为场景参考
             │
-            └─ 无用户照片 → 串行调用 imageService（→ POST /api/ai/generate-image）
+            └─ 无照片无视频 → 串行调用 imageService（→ POST /api/ai/generate-image）
                 后一张传入前一张的图片 URL 作为连续性参考
             │
             [后端 imageGenerator 每次调用]：
@@ -1097,6 +1208,56 @@ interface HistoryPanelProps {
             顶部信息栏显示「未保存」
             → 用户点击「保存故事」→ 触发 [手动保存数据流（v1.8 三步流程）]
 ```
+
+### 视频分析数据流（v2.0 新增）
+
+```
+用户点击「添加视频」上传视频文件
+      │
+      ▼
+[前端 InputPanel] 客户端校验
+      ├─ 格式校验：MP4/MOV（video/mp4, video/quicktime）
+      ├─ 时长校验：≤3 分钟
+      ├─ 大小校验：≤500MB
+      ├─ 数量校验：最多 1 段视频
+      └─ 不通过 → 前端直接拒绝并显示具体原因
+      │
+      ▼（校验通过）
+[前端 InputPanel] 显示上传进度 → 「AI 分析中...」
+      │
+      ▼
+inputService.analyzeVideo(videoFile)
+      → 将 File 转为 base64
+      → POST /api/ai/analyze-video { videoBase64, mimeType }
+      │
+      ▼
+[后端 routes/ai.ts → videoAnalyzer.analyzeVideo()]
+      ├─ 1. 将 video base64 作为 inlineData 传入 TEXT_MODEL（Gemini Video Understanding）
+      ├─ 2. AI 返回 JSON：{ description, keyFrames: [{ timestamp, description }] }
+      ├─ 3. 对每个关键帧：AI 提取帧图片 → base64 → imageStorage.saveImage('scenes', ...) → URL
+      └─ 4. 返回 VideoAnalysis（description + keyFrames with imageUrl）
+      │
+      ▼
+[前端 InputPanel] 更新状态
+      ├─ 设置 videoAnalysis = 返回结果
+      ├─ 展示关键帧缩略图（与照片缩略图并排，带"关键帧"标签）
+      ├─ 用户可删除单个关键帧（从 keyFrames 数组中移除）
+      └─ 视频描述文字自动追加到 inputText（或作为独立字段传入 handleGenerate）
+      │
+      ▼（用户点击「生成漫画」时）
+[前端 App.tsx handleGenerate]
+      ├─ keyFrames.length 决定分镜数量（1:1 对应）
+      ├─ videoAnalysis.description 作为输入传给 storyService
+      ├─ keyFrames 图片 URL 作为 sceneReferenceImages 传给 imageService
+      └─ 照片（如有）作为额外视觉参考，不增加分镜数
+
+注意：
+- 视频分析在上传时立即触发，不等待用户点击「生成漫画」
+- 用户可在视频分析期间继续写文字、选风格、上传照片
+- 分析失败时显示错误提示 + 重试按钮
+```
+
+---
 
 ### 角色创建数据流
 
@@ -1358,6 +1519,19 @@ Step 2: 生成 PDF（纯前端 Canvas + jsPDF，v1.8：海报页结构）
 | 水印显示 | 底部显示 "MangaGrow" | 人工审查 | 代码 bug，修复 |
 | 导出格式 | PNG 格式，文件名包含标题 | 代码检查 | 不会发生（代码保证） |
 
+### 视频分析 质量标准（v2.0 新增）
+
+| 维度 | 标准 | 检查方法 | 不达标处理 |
+|------|------|---------|-----------|
+| 前端校验 | 格式（MP4/MOV）、时长（≤3min）、大小（≤500MB）、数量（≤1）不满足时直接拒绝 | 代码检查 | 不会发生（代码保证） |
+| 视频描述质量 | 描述 100-200 字，涵盖场景/人物/动作/情绪 | 人工抽查 | AI 输出质量问题，调整 prompt |
+| 关键帧数量 | 2-4 个关键帧，每帧代表故事一个阶段 | 代码检查 JSON 数组长度 | AI 返回 <2 帧时使用全部；>4 帧时截取前 4 帧 |
+| 关键帧叙事性 | 帧间有叙事推进，不重复 | 人工抽查 | AI 输出质量问题，调整 prompt |
+| 关键帧图片质量 | 帧图片清晰可用作场景参考 | 人工审查 | 用户可删除不满意的帧 |
+| 分析超时 | 120 秒内完成 | 代码 timeout | 超时返回错误，用户可重试 |
+| 分析失败处理 | 失败时前端显示错误提示 + 重试按钮 | UI 检查 | 不会发生（代码保证） |
+| 视频+照片混合 | 关键帧决定分镜骨架，照片为额外参考 | 代码检查生成逻辑 | 不会发生（代码保证） |
+
 ---
 
 ## 约束清单（红线）
@@ -1408,6 +1582,12 @@ Step 2: 生成 PDF（纯前端 Canvas + jsPDF，v1.8：海报页结构）
 | C41 | 成长相册（isGrowthAlbumOpen）与历史记录主页面（isHistoryOpen）必须互斥，不允许同时显示；打开任一时必须关闭另一 | 前端 App.tsx | 交互一致性（v1.7，v1.8 更新） |
 | C42 | 保存故事流程必须严格按顺序：① posterGenerator.generatePoster() ② imageStorage.saveImage('posters'/'inputs') ③ POST /api/stories；任一步骤失败不得写入数据库 | 前端 App.tsx, 后端 routes/stories.ts | 数据完整性（v1.8） |
 | C43 | HistoryPanel 必须为双栏主页面：左栏故事列表（280px）+ 右栏只读详情；右栏只展示 posterUrl/inputText/inputPhotos，不渲染任何编辑/重绘控件 | 前端 components/HistoryPanel.tsx | 只读一致性（v1.8） |
+| C44 | 视频校验必须在前端完成（格式 MP4/MOV、时长 ≤3min、大小 ≤500MB、数量 ≤1），不满足时直接拒绝，不发送到后端 | 前端 InputPanel.tsx | 避免无效上传（v2.0） |
+| C45 | 视频分析必须在上传时立即触发（异步），不等待用户点击「生成漫画」；用户可在分析期间继续输入文字、选风格、上传照片 | 前端 InputPanel.tsx, App.tsx | 并行体验（v2.0） |
+| C46 | 关键帧数量由 AI 决定（2-4 帧），前端不可手动添加帧，只可删除；删除帧后分镜数同步减少；关键帧与分镜 1:1 对应 | 前端 App.tsx, 后端 videoAnalyzer | 叙事一致性（v2.0） |
+| C47 | 视频 + 照片可同时上传：关键帧决定分镜骨架（1:1），照片作为额外视觉参考注入，不增加分镜数 | 前端 App.tsx | 混合输入（v2.0） |
+| C48 | 后端不保存视频原文件到磁盘，只保存关键帧图片（通过 imageStorage.saveImage('scenes', ...)）| 后端 videoAnalyzer | 存储效率（v2.0） |
+| C49 | 视频分析 API 超时设置为 120 秒（视频处理耗时较长），超时返回错误 | 后端 routes/ai.ts, videoAnalyzer | 超时控制（v2.0） |
 
 ---
 
@@ -1436,3 +1616,4 @@ Step 2: 生成 PDF（纯前端 Canvas + jsPDF，v1.8：海报页结构）
 | v1.8 | 2026-02-27 | Product-Spec v1.8 — 存储模型重构（海报存储 + 历史只读 + 历史双栏页面） | 1) DB schema：删除 scenes 表；stories 表新增 input_text/input_photos/poster_url，删除 updated_at; 2) imageStorage：type 参数从 avatars/scenes 改为 avatars/posters/inputs，ensureDirectories 新增 posters/inputs 目录; 3) 手动保存方案重构：废除 debounce PUT，改为「generatePoster → 上传 → POST」三步流程; 4) HistoryPanel 重构：侧边栏 → 双栏主页面（左280px列表 + 右只读详情）; 5) GrowthAlbum：缩略图改为 posterUrl；点击故事展开只读详情（不调用 onSelectStory）; 6) pdfGenerator：StoryBookOptions 删除 scenes[]，改为 posterUrl+inputText；故事页从分镜网格改为海报全页; 7) apiClient：saveStory body 改为 title/input_text/input_photos/poster_base64/style; 8) 约束：C21 更新目录类型；C27 更新保存流程；删除 C28/C32/C33；C41 更新；新增 C42/C43 | DB schema, imageStorage, App.tsx, HistoryPanel, GrowthAlbum, pdfGenerator, apiClient, routes/stories.ts |
 | v1.7 | 2026-02-26 | Product-Spec v1.6 — 手动保存确认 + 成长相册 + PDF 成长故事书 | 1) 存档逻辑：自动保存改为手动保存（生成完显示「保存故事」按钮，点击后 POST）；已保存故事仍 debounce PUT；约束 C27/C28 更新; 2) 新增前端模块 GrowthAlbum（时间轴页面，client-side 按年/月分组）; 3) 新增前端工具 pdfGenerator（Canvas 分页渲染 + jsPDF 拼合，中文用 Canvas fillText）; 4) 后端 storyPipeline 新增 generateYearlySummary（300-500字年度总结，TEXT_MODEL）; 5) 后端新增 POST /api/ai/generate-summary 端点; 6) apiClient 新增 generateYearlySummary 方法; 7) 新增 3 个技术方案（手动保存/成长相册/PDF）; 8) 新增 3 个数据流（手动保存/成长相册浏览/PDF生成）; 9) 新增约束 C39/C40/C41; 10) 新增 PDF 质量标准 | App.tsx, DisplayPanel, 新增 GrowthAlbum + pdfGenerator, storyPipeline, routes/ai.ts, apiClient |
 | v1.5 | 2026-02-24 | 分镜卡片 caption 显示 + 人物快捷区自动匹配 + 人物头像点击进入详情 | 1) SceneScript 新增 `caption: string` 字段（10-20字故事叙述）; 2) Scene 新增 `caption?: string` 字段; 3) scenes 表新增 `caption TEXT` 列（ALTER TABLE 迁移）; 4) storyPipeline Step 3 同时生成 description（图像脚本）和 caption（故事叙述）; 5) DisplayPanel 分镜卡片下方改为显示 caption，script 改为气泡弹窗编辑; 6) InputPanel 人物快捷区改为按文本自动匹配人物名字; 7) InputPanel 新增 `onCharacterClick` prop; 8) CharacterLibrary 新增 `initialCharacterId` prop，支持直接进入人物详情; 9) posterGenerator PosterOptions `scenes` 字段从 `script` 改为 `caption`; 10) 新增约束 C34-C36; 11) 新增前端组件 Props 变更文档 | SceneScript 类型, Scene 类型, db schema, storyPipeline Step 3, DisplayPanel, InputPanel, CharacterLibrary, posterGenerator, App.tsx |
+| v2.0 | 2026-03-06 | Product-Spec v2.0 — 视频转漫画功能 | 1) 新增后端模块 videoAnalyzer（视频内容理解 + 关键帧提取，使用 Gemini Video Understanding）; 2) 新增 `POST /api/ai/analyze-video` 端点; 3) 新增 VideoAnalysis/VideoKeyFrame 类型（前后端）; 4) inputService 新增 `analyzeVideo()` 前端薄封装; 5) apiClient 新增 `analyzeVideo()` 方法; 6) InputPanel 新增视频上传按钮 + 校验 + 分析状态 + 关键帧缩略图展示; 7) App.tsx handleGenerate 新增视频路径（关键帧 1:1 决定分镜数，照片为额外参考）; 8) 主流程数据流新增视频分析路径; 9) 新增视频分析数据流; 10) 新增视频转漫画技术方案; 11) 新增视频分析质量标准; 12) 新增约束 C44-C49; 13) 修正模型名称（gemini-2.5-flash / nano-banana-pro-preview 与代码一致） | 新增 videoAnalyzer, routes/ai.ts, inputService, apiClient, InputPanel, App.tsx, types.ts, 数据流, 约束 C44-C49 |

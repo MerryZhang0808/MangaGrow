@@ -4,8 +4,8 @@ import { DisplayPanel } from './components/DisplayPanel';
 import { CharacterLibrary } from './components/CharacterLibrary';
 import { HistoryPanel } from './components/HistoryPanel';
 import { GrowthAlbum } from './components/GrowthAlbum';
-import { ComicStyle, AspectRatio, Scene, Character, KeyObject } from './types';
-import { analyzeImages } from './services/inputService';
+import { ComicStyle, AspectRatio, Scene, Character, KeyObject, VideoAnalysis } from './types';
+import { analyzeImages, analyzeVideo } from './services/inputService';
 import { generateStory } from './services/storyService';
 import { generateSceneImage } from './services/imageService';
 import { getCharacterReferences, getCharacters } from './services/characterService';
@@ -33,6 +33,49 @@ const App: React.FC = () => {
   const [storyTitle, setStoryTitle] = useState<string>('');
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // State: Video (v2.0)
+  const [videoAnalysis, setVideoAnalysis] = useState<VideoAnalysis | null>(null);
+  const [isVideoAnalyzing, setIsVideoAnalyzing] = useState(false);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
+
+  // C45: Trigger video analysis immediately on upload
+  const handleVideoUpload = useCallback(async (file: File) => {
+    setVideoFile(file);
+    setVideoAnalysis(null);
+    setVideoError(null);
+    setIsVideoAnalyzing(true);
+    try {
+      const result = await analyzeVideo(file);
+      setVideoAnalysis(result);
+    } catch (e: any) {
+      console.error('[App] Video analysis failed:', e);
+      setVideoError(e.message || '视频分析失败');
+    } finally {
+      setIsVideoAnalyzing(false);
+    }
+  }, []);
+
+  const handleVideoRetry = useCallback(() => {
+    if (videoFile) handleVideoUpload(videoFile);
+  }, [videoFile, handleVideoUpload]);
+
+  const handleRemoveVideo = useCallback(() => {
+    setVideoFile(null);
+    setVideoAnalysis(null);
+    setIsVideoAnalyzing(false);
+    setVideoError(null);
+  }, []);
+
+  const handleRemoveKeyFrame = useCallback((index: number) => {
+    setVideoAnalysis(prev => {
+      if (!prev) return null;
+      const newFrames = prev.keyFrames.filter(f => f.index !== index);
+      if (newFrames.length === 0) return null;
+      return { ...prev, keyFrames: newFrames };
+    });
+  }, []);
 
   // State: Sidebar / Panels (C41: GrowthAlbum and HistoryPanel are mutually exclusive)
   const [isCharLibOpen, setIsCharLibOpen] = useState(false);
@@ -98,7 +141,8 @@ const App: React.FC = () => {
 
   // Main Generation Logic — uses storyService pipeline + imageService
   const handleGenerate = async () => {
-    if (!inputText && inputImages.length === 0) return;
+    const hasVideo = videoAnalysis && videoAnalysis.keyFrames.length > 0;
+    if (!inputText && inputImages.length === 0 && !hasVideo) return;
     setIsGenerating(true);
     setGenerationStage("分析输入内容...");
     setScenes([]);
@@ -119,30 +163,46 @@ const App: React.FC = () => {
 
       // 2. Generate Story via storyService (→ backend 4-step pipeline)
       setGenerationStage("构思故事大纲...");
+      // v2.0: video path — append video description to text, use keyFrame count as imageCount
+      const storyText = hasVideo
+        ? (inputText ? inputText + '\n\n' + videoAnalysis!.contentDescription : videoAnalysis!.contentDescription)
+        : inputText;
+      const storyImageCount = hasVideo
+        ? videoAnalysis!.keyFrames.length  // C46: keyFrames 1:1 with panels
+        : inputImages.length;
+
       const storyResult = await generateStory({
-        text: inputText,
+        text: storyText,
         imageAnalysis,
         characters,
         style,
-        imageCount: inputImages.length
+        imageCount: storyImageCount
       });
 
       const scriptScenes = storyResult.currentBatch || [];
       const generatedKeyObjects = storyResult.keyObjects || [];
       const generatedStoryCharsRaw = storyResult.characterDefinitions || [];
-      const characterStyleMode = storyResult.characterStyleMode || 'head-only'; // v1.9: 服装策略
-
       if (scriptScenes.length === 0) {
         throw new Error("AI未能生成有效的故事内容。请尝试增加更详细的描述或检查图片。");
       }
 
-      // Merge character definitions: library characters take priority
-      const libraryCharMap = new Map();
+      // Merge character definitions: only include library characters that appear in the story
+      const storyCharNames = new Set(
+        generatedStoryCharsRaw.map((c: KeyObject) => c.name.toLowerCase().trim())
+      );
+      // Also check script text for character names (fallback for AI omissions)
+      const allScriptText = scriptScenes.map(s => `${s.description} ${s.caption || ''}`).join(' ').toLowerCase();
+
       const mergedCharacters: KeyObject[] = [];
+      const libraryCharMap = new Map();
 
       characters.forEach(c => {
-        mergedCharacters.push({ name: c.name, description: c.description });
-        libraryCharMap.set(c.name.toLowerCase().trim(), true);
+        const nameKey = c.name.toLowerCase().trim();
+        // Only include library characters that the story actually uses
+        if (storyCharNames.has(nameKey) || allScriptText.includes(nameKey)) {
+          mergedCharacters.push({ name: c.name, description: c.description });
+          libraryCharMap.set(nameKey, true);
+        }
       });
 
       generatedStoryCharsRaw.forEach((char: KeyObject) => {
@@ -174,11 +234,13 @@ const App: React.FC = () => {
       setGenerationStage("生成漫画图片...");
 
       // Prepare contexts
-      // 有头像的库角色：头像管发型/面部，服装跟场景描述走（故事临时服装优先于头像服装）
-      const libraryCharNameSet = new Set(characters.map(c => c.name.toLowerCase()));
+      // 有头像的库角色：文字描述 + 头像图片双重锚定，确保人物一致性
+      const libCharByName = new Map<string, Character>(characters.map(c => [c.name.toLowerCase(), c]));
       const characterContext = mergedCharacters.map((c: KeyObject) => {
-        if (libraryCharNameSet.has(c.name.toLowerCase())) {
-          return `[人物: ${c.name}] 发型、发色、面部特征严格以上方Q版头像参考图为准；本分镜的服装以[3. 画面描述]中写明的服装为准（若故事有特定着装则以描述为准，若无则参考头像服装）。`;
+        const libChar = libCharByName.get(c.name.toLowerCase());
+        if (libChar) {
+          // 同时提供文字描述 + 头像图片引用，双重锚定人物外貌
+          return `[人物: ${c.name}]\n外貌特征（人物库）: ${libChar.description}\n⚠️ 该角色已提供Q版头像参考图，发型/发色/面部特征必须严格与头像一致。服装：优先使用画面描述中的服装，无描述时参考上述外貌特征。`;
         }
         return `[人物: ${c.name}]\n外貌特征: ${c.description}`;
       }).join('\n\n');
@@ -219,7 +281,6 @@ const App: React.FC = () => {
             referenceCharIds,
             sceneReferenceImages: sceneRefImages,
             characterSnapshots: snapshotUrls, // v1.9: 传入角色快照
-            characterStyleMode, // v1.9: 服装策略
             isUserPhoto: isPhoto
           });
           setScenes(prev => prev.map(s =>
@@ -241,7 +302,22 @@ const App: React.FC = () => {
         }
       };
 
-      if (hasUserPhotos) {
+      if (hasVideo) {
+        // v2.0 Video path: parallel, each scene uses its keyframe as reference
+        // C46: keyFrames 1:1 with panels; C47: photos as extra reference
+        setGenerationStage(`并行绘制 ${firstBatch.length} 幅画面...`);
+        await Promise.all(
+          firstBatch.map((scene, i) => {
+            const keyFrame = videoAnalysis!.keyFrames[i];
+            const refs: string[] = keyFrame ? [keyFrame.imageUrl] : [];
+            // C47: if also have photos, add them as extra visual reference
+            if (inputImages.length > 0) {
+              refs.push(...inputImages);
+            }
+            return generateOne(scene, i, refs, false);
+          })
+        );
+      } else if (hasUserPhotos) {
         // Parallel: each scene uses its own user photo as reference
         setGenerationStage(`并行绘制 ${firstBatch.length} 幅画面...`);
         await Promise.all(
@@ -282,6 +358,11 @@ const App: React.FC = () => {
     setStoryTitle('');
     setIsSaved(false);
     setIsSaving(false);
+    // v2.0: clear video state
+    setVideoFile(null);
+    setVideoAnalysis(null);
+    setIsVideoAnalyzing(false);
+    setVideoError(null);
   };
 
   return (
@@ -377,6 +458,13 @@ const App: React.FC = () => {
           setStyle={setStyle}
           ratio={ratio}
           setRatio={setRatio}
+          videoAnalysis={videoAnalysis}
+          isVideoAnalyzing={isVideoAnalyzing}
+          videoError={videoError}
+          onVideoUpload={handleVideoUpload}
+          onVideoRetry={handleVideoRetry}
+          onRemoveVideo={handleRemoveVideo}
+          onRemoveKeyFrame={handleRemoveKeyFrame}
         />
       </div>
 

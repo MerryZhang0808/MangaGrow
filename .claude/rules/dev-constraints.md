@@ -7,9 +7,15 @@ paths:
 # 代码开发约束（编辑项目代码时自动生效）
 
 ## 文档优先
-- 修改代码前，先确认该修改符合 Architecture.md 中的技术方案
-- 如果 Architecture.md 中没有覆盖该修改，先更新 Architecture.md 再写代码
-- 新增 service 文件必须先在 Architecture.md 的模块设计中定义
+- 新增 service 文件或 API 端点时，先在 Architecture.md 中记录
+- 小改动（bug 修复、提示词优化）无需更新文档
+
+## 自动化验证
+- 代码修改后必须通过 npm run typecheck（前后端类型检查）
+- 提交前 pre-commit hook 会自动运行类型检查和 ESLint
+- 新增或修改 `routes/*.ts` 中的端点后，必须在同一上下文中补充对应测试
+- 测试重点覆盖：参数校验（400）、service 异常（500）、降级路径、响应格式契约
+- 测试文件放在 `__tests__/` 目录下，与源文件路径对应（如 `routes/ai.ts` → `__tests__/routes/ai.test.ts`）
 
 ## 环境配置
 - 后端环境变量在 `.env` 文件中定义（如 `GEMINI_API_KEY`），通过 `process.env` 读取
@@ -23,7 +29,6 @@ paths:
 - 前端 `services/*.ts` 不允许直接 import `@google/genai`，所有 AI 功能通过 `apiClient` 调用后端（C26）
 - 前端组件（.tsx）不允许直接调用后端 API，必须通过 `services/` 层（C02）
 - 分镜图片分辨率使用 1K（1024x1024），角色头像分辨率使用 2K（2048x2048）（C05）
-- 后端所有 API 响应的 JSON 必须经过 `JSON.parse()` 验证（C11）
 - 角色照片传入 API 前必须压缩（maxWidth=800, quality=0.6）（C12）
 - 有参考图方案失败时必须降级为纯文字方案，不允许直接报错（C14）
 
@@ -57,7 +62,6 @@ paths:
 ## 手动保存（v1.8 重构）
 - 生成完成后必须显示「保存故事」按钮（不自动保存），`scenes.length > 0 && !isSaved` 时按钮可见，保存成功后按钮消失（C27）
 - 保存流程必须严格三步顺序：① posterGenerator.generatePoster() ② imageStorage.saveImage('posters'/'inputs') ③ POST /api/stories；任一步骤失败不得写入数据库（C42）
-- 不存在 PUT /api/stories/:id，禁止任何 debounce 同步逻辑（C28 已废除）
 - 保存后故事只读，不支持编辑/重绘
 - 标题生成失败不允许阻塞主流程，必须降级为 input_summary 前 15 字（C31）
 
@@ -68,8 +72,6 @@ paths:
 ## 历史记录（v1.8 重构）
 - HistoryPanel 必须为全宽双栏主页面：左栏 280px 固定宽故事列表 + 右栏 flex 只读详情（C43）
 - 右栏只展示 posterUrl/inputText/inputPhotos，不允许渲染任何编辑/重绘控件（C43）
-- 历史记录严格只读，不支持将历史故事加载到创作面板（C33 已废除 v1.8）
-- C32（侧边栏约束）已废除
 
 ## PDF 成长故事书（v1.7 新增，v1.8 更新）
 - PDF 中所有中文文字必须通过 Canvas fillText 渲染后转为图片嵌入，不允许直接调用 jsPDF.text 输出中文（避免字体缺失乱码）（C39）
@@ -77,6 +79,30 @@ paths:
 - jsPDF 仅允许在 `comic-growth-record/utils/pdfGenerator.ts` 中引入，其他文件不允许 import jspdf
 - 成长相册（isGrowthAlbumOpen）与历史记录主页面（isHistoryOpen）必须互斥，不允许同时显示（C41）
 - 图片串行生成时，Scene 2+ 以上一张已生成分镜图作为场景参考（链式传递），通过 `[风格参考帧]` prompt label 保持画风一致；有用户照片时每张用对应用户照片作参考（C38）
+
+## 视频转漫画（v2.0 新增）
+- 视频校验必须在前端完成（格式 MP4/MOV、时长 ≤3min、大小 ≤500MB、数量 ≤1），不满足时直接拒绝，不发送到后端（C44）
+- 视频分析必须在上传时立即触发（异步），不等待用户点击「生成漫画」（C45）
+- 关键帧数量由 AI 决定（2-4 帧），前端不可手动添加帧，只可删除；删除帧后分镜数同步减少；关键帧与分镜 1:1 对应（C46）
+- 视频 + 照片可同时上传：关键帧决定分镜骨架（1:1），照片作为额外视觉参考注入，不增加分镜数（C47）
+- 后端不保存视频原文件到磁盘，只保存关键帧图片（通过 imageStorage.saveImage('scenes', ...)）（C48）
+- 视频分析 API 超时设置为 120 秒（C49）
+
+## 并行工作安全
+
+禁止并行编辑的枢纽文件（多窗口工作时，同一时间只能有一个窗口修改）：
+- comic-growth-record/types.ts（前端所有文件依赖）
+- server/types.ts（后端所有文件依赖）
+- server/services/gemini.ts（所有 AI 服务依赖）
+- server/db/index.ts（所有路由依赖）
+- server/index.ts（服务器入口）
+
+安全并行的功能领地：
+- 领地 A（故事管线）：storyPipeline.ts, imageGenerator.ts, DisplayPanel.tsx
+- 领地 B（角色系统）：characterAnalyzer.ts, routes/characters.ts, CharacterLibrary.tsx
+- 领地 C（输入分析）：inputAnalyzer.ts, videoAnalyzer.ts, InputPanel.tsx
+- 领地 D（历史/PDF）：routes/stories.ts, HistoryPanel.tsx, GrowthAlbum.tsx
+- 不同领地之间可以安全并行编辑
 
 ## 文档同步
 - Architecture.md 变更时必须同步更新 architecture-diagram.html（C15）

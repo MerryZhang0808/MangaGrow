@@ -52,7 +52,6 @@ export interface StoryOutput {
   characterDefinitions: CharacterDef[];
   storyOutline: string;
   title: string;               // v1.6: 与 Step4 并行生成，随脚本一起返回
-  characterStyleMode?: 'full' | 'head-only'; // v1.9: 服装策略
 }
 
 export interface CharacterData {
@@ -92,6 +91,21 @@ export interface StoryDetail {
 export interface SummaryStoryItem {
   title: string;
   inputText: string;
+}
+
+// v2.0: Video analysis types
+export interface VideoKeyFrame {
+  index: number;
+  timestamp: string;       // e.g. "00:15"
+  description: string;
+  imageData: string;       // base64
+  mimeType: string;
+  imageUrl?: string;       // after saving to disk
+}
+
+export interface VideoAnalysis {
+  contentDescription: string;  // AI-generated content summary
+  keyFrames: VideoKeyFrame[];  // 2-4 key frames
 }
 
 export interface SceneImageParams {

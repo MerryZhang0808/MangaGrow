@@ -235,6 +235,7 @@
           <div class="mod">imageGenerator<span class="file">scene image gen + save</span></div>
           <div class="mod">characterAnalyzer<span class="file">avatar + gender/age</span></div>
           <div class="mod">inputAnalyzer<span class="file">transcribe + image analyze</span></div>
+          <div class="mod new">videoAnalyzer<span class="file">video content + keyframe extract · v2.0</span></div>
           <div class="mod">styleConfig<span class="file">4 style parameter sets</span></div>
           <div class="mod">imageStorage<span class="file">disk save/read/delete</span></div>
         </div>
@@ -428,6 +429,7 @@
 [Frontend]                              [Backend]
 App.tsx (dispatch)                      server/index.ts (Express :3001)
   ├── inputService ──→ apiClient        ├── routes/ai.ts ──→ inputAnalyzer ──→ gemini
+  │   └── analyzeVideo [v2.0]          ├── routes/ai.ts ──→ videoAnalyzer ──→ gemini [v2.0]
   ├── storyService ──→ apiClient        ├── routes/ai.ts ──→ storyPipeline ──→ gemini
   ├── imageService ──→ apiClient        │                      ├── styleConfig
   ├── characterService → apiClient      │                      └── generateYearlySummary ──→ gemini [v1.7]

@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Mic, Image as ImageIcon, X, SlidersHorizontal, Plus, ChevronDown, Wand2 } from 'lucide-react';
+import { Mic, Image as ImageIcon, X, SlidersHorizontal, Plus, ChevronDown, Wand2, Video, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from './Button';
 import { transcribeAudio } from '../services/inputService';
-import { Character, ComicStyle, AspectRatio } from '../types';
+import { Character, ComicStyle, AspectRatio, VideoAnalysis } from '../types';
 
 interface InputPanelProps {
   text: string;
@@ -18,17 +18,27 @@ interface InputPanelProps {
   setStyle: (s: ComicStyle) => void;
   ratio: AspectRatio;
   setRatio: (r: AspectRatio) => void;
+  // v2.0: Video props
+  videoAnalysis: VideoAnalysis | null;
+  isVideoAnalyzing: boolean;
+  videoError: string | null;
+  onVideoUpload: (file: File) => void;
+  onVideoRetry: () => void;
+  onRemoveVideo: () => void;
+  onRemoveKeyFrame: (index: number) => void;
 }
 
 export const InputPanel: React.FC<InputPanelProps> = ({
   text, setText, images, setImages, onGenerate, isGenerating,
-  openCharLib, onCharacterClick, characters, style, setStyle, ratio, setRatio
+  openCharLib, onCharacterClick, characters, style, setStyle, ratio, setRatio,
+  videoAnalysis, isVideoAnalyzing, videoError, onVideoUpload, onVideoRetry, onRemoveVideo, onRemoveKeyFrame
 }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
 
   // Date formatting
   const today = new Date();
@@ -94,6 +104,51 @@ export const InputPanel: React.FC<InputPanelProps> = ({
     setImages(images.filter((_, i) => i !== index));
   };
 
+  // v2.0: Video upload with C44 validation
+  const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so same file can be re-selected
+    e.target.value = '';
+
+    // C44: Format validation
+    const validTypes = ['video/mp4', 'video/quicktime'];
+    if (!validTypes.includes(file.type)) {
+      alert('仅支持 MP4/MOV 格式的视频');
+      return;
+    }
+
+    // C44: Size validation (500MB)
+    if (file.size > 500 * 1024 * 1024) {
+      alert('视频大小不能超过 500MB');
+      return;
+    }
+
+    // C44: Only 1 video allowed
+    if (videoAnalysis || isVideoAnalyzing) {
+      alert('每次最多上传 1 段视频，请先删除当前视频');
+      return;
+    }
+
+    // C44: Duration validation (3 min) — async via video element
+    const videoEl = document.createElement('video');
+    videoEl.preload = 'metadata';
+    videoEl.onloadedmetadata = () => {
+      URL.revokeObjectURL(videoEl.src);
+      if (videoEl.duration > 180) {
+        alert('视频时长不能超过 3 分钟');
+        return;
+      }
+      // C45: Trigger analysis immediately
+      onVideoUpload(file);
+    };
+    videoEl.onerror = () => {
+      URL.revokeObjectURL(videoEl.src);
+      alert('无法读取视频信息，请检查文件格式');
+    };
+    videoEl.src = URL.createObjectURL(file);
+  };
+
   return (
     <div className="flex flex-col h-full bg-white relative">
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
@@ -126,14 +181,15 @@ export const InputPanel: React.FC<InputPanelProps> = ({
           </button>
         </div>
 
-        {/* Reference Photo */}
+        {/* Reference Media */}
         <div className="mb-8">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Reference Photo</h3>
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Reference Media</h3>
           <div className="flex flex-wrap gap-3">
+            {/* Photo thumbnails */}
             {images.map((img, idx) => (
-              <div key={idx} className="relative w-20 h-20 rounded-xl overflow-hidden border border-gray-100 group shadow-sm">
+              <div key={`photo-${idx}`} className="relative w-20 h-20 rounded-xl overflow-hidden border border-gray-100 group shadow-sm">
                 <img src={img} alt="upload" className="w-full h-full object-cover" />
-                <button 
+                <button
                   onClick={() => removeImage(idx)}
                   className="absolute top-0 right-0 bg-black/50 text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity rounded-bl-lg"
                 >
@@ -141,21 +197,77 @@ export const InputPanel: React.FC<InputPanelProps> = ({
                 </button>
               </div>
             ))}
-            <button 
+
+            {/* v2.0: Video analysis states */}
+            {isVideoAnalyzing && (
+              <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-primary-200 bg-primary-50 flex flex-col items-center justify-center shadow-sm">
+                <Loader2 size={20} className="text-primary-500 animate-spin" />
+                <span className="text-[10px] text-primary-600 mt-1">AI 分析中</span>
+              </div>
+            )}
+
+            {videoError && !isVideoAnalyzing && (
+              <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-red-200 bg-red-50 flex flex-col items-center justify-center shadow-sm">
+                <span className="text-[10px] text-red-500 text-center px-1">分析失败</span>
+                <button onClick={onVideoRetry} className="mt-1 p-1 text-red-500 hover:text-red-700">
+                  <RefreshCw size={14} />
+                </button>
+                <button
+                  onClick={onRemoveVideo}
+                  className="absolute top-0 right-0 bg-black/50 text-white p-1 rounded-bl-lg"
+                >
+                  <X size={10} />
+                </button>
+              </div>
+            )}
+
+            {/* Key frame thumbnails (after analysis complete) */}
+            {videoAnalysis?.keyFrames.map((frame) => (
+              <div key={`frame-${frame.index}`} className="relative w-20 h-20 rounded-xl overflow-hidden border border-blue-200 group shadow-sm">
+                <img src={frame.imageUrl} alt={`关键帧 ${frame.timestamp}`} className="w-full h-full object-cover" />
+                <div className="absolute bottom-0 left-0 right-0 bg-blue-600/80 text-white text-[9px] text-center py-0.5">
+                  {frame.timestamp}
+                </div>
+                <button
+                  onClick={() => onRemoveKeyFrame(frame.index)}
+                  className="absolute top-0 right-0 bg-black/50 text-white p-1 opacity-0 group-hover:opacity-100 transition-opacity rounded-bl-lg"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+
+            {/* Action buttons */}
+            <button
               onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-2 px-4 py-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-full text-sm font-medium transition-colors border border-gray-200"
             >
               <ImageIcon size={16} />
               Add Photo
             </button>
+            <button
+              onClick={() => videoInputRef.current?.click()}
+              disabled={isVideoAnalyzing || !!videoAnalysis}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-full text-sm font-medium transition-colors border border-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Video size={16} />
+              Add Video
+            </button>
           </div>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            accept="image/*" 
-            multiple 
-            onChange={handleImageUpload} 
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept="image/*"
+            multiple
+            onChange={handleImageUpload}
+          />
+          <input
+            type="file"
+            ref={videoInputRef}
+            className="hidden"
+            accept="video/mp4,video/quicktime"
+            onChange={handleVideoSelect}
           />
         </div>
 
@@ -252,7 +364,7 @@ export const InputPanel: React.FC<InputPanelProps> = ({
         
         <Button 
           onClick={onGenerate} 
-          disabled={(!text && images.length === 0) || isGenerating}
+          disabled={(!text && images.length === 0 && !videoAnalysis?.keyFrames?.length) || isGenerating || isVideoAnalyzing}
           isLoading={isGenerating}
           className="flex-1 h-12 rounded-xl text-base shadow-lg shadow-primary-100 flex items-center justify-center gap-2"
         >

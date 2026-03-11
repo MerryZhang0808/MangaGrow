@@ -44,8 +44,8 @@ async function testModels() {
       } else {
         console.log(`  ❌ HTTP ${response.status}: ${(data.error?.message || 'Unknown').substring(0, 80)}`);
       }
-    } catch (err) {
-      console.log(`  ❌ 错误: ${err.message}`);
+    } catch (err: unknown) {
+      console.log(`  ❌ 错误: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   return null;

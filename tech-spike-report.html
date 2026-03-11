@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MangaGrow — 核心技术穿刺报告</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+  min-height: 100vh;
+  padding: 40px 24px 80px;
+  line-height: 1.7;
+}
+
+.container { max-width: 960px; margin: 0 auto; }
+
+h1 { font-size: 30px; font-weight: 700; color: #f0f6fc; text-align: center; margin-bottom: 4px; }
+.subtitle { text-align: center; color: #8b949e; font-size: 14px; margin-bottom: 10px; }
+.meta { text-align: center; color: #6e7681; font-size: 12px; margin-bottom: 48px; }
+
+.section { margin-bottom: 56px; }
+.section-title {
+  font-size: 20px; font-weight: 700; color: #f0f6fc;
+  margin-bottom: 20px; padding-bottom: 10px;
+  border-bottom: 1px solid #21262d;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-title .num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: #58a6ff; color: #0d1117;
+  font-size: 15px; font-weight: 700; flex-shrink: 0;
+}
+
+.card {
+  background: #161b22; border: 1px solid #30363d;
+  border-radius: 12px; padding: 24px; margin-bottom: 20px;
+}
+.card-title { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
+.card p, .card li { font-size: 13.5px; color: #c9d1d9; }
+.card ul { padding-left: 20px; margin-top: 6px; }
+.card li { margin-bottom: 5px; }
+
+.tag {
+  display: inline-block; padding: 2px 10px;
+  border-radius: 4px; font-size: 11px; font-weight: 600;
+}
+.tag-problem { background: rgba(248,81,73,0.15); color: #f85149; border: 1px solid rgba(248,81,73,0.3); }
+.tag-solution { background: rgba(63,185,80,0.15); color: #3fb950; border: 1px solid rgba(63,185,80,0.3); }
+.tag-risk { background: rgba(227,179,65,0.15); color: #e3b341; border: 1px solid rgba(227,179,65,0.3); }
+.tag-model { background: rgba(163,113,247,0.15); color: #a371f7; border: 1px solid rgba(163,113,247,0.3); }
+
+code {
+  background: rgba(110,118,129,0.2); padding: 1px 6px;
+  border-radius: 4px; font-size: 12px; color: #79c0ff;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+}
+
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+.cmp-table th {
+  text-align: left; padding: 10px 12px;
+  background: #21262d; color: #f0f6fc; font-weight: 600;
+  border-bottom: 1px solid #30363d;
+}
+.cmp-table td { padding: 10px 12px; border-bottom: 1px solid #21262d; color: #c9d1d9; vertical-align: top; }
+
+/* SVG diagrams */
+.diagram-wrap {
+  background: #0d1117; border: 1px solid #30363d;
+  border-radius: 10px; padding: 20px; margin: 16px 0;
+  overflow-x: auto;
+}
+.diagram-wrap svg { display: block; margin: 0 auto; }
+.diagram-caption {
+  text-align: center; font-size: 12px; color: #6e7681;
+  margin-top: 10px; font-style: italic;
+}
+
+/* Timeline */
+.timeline { position: relative; padding-left: 32px; }
+.timeline::before {
+  content: ''; position: absolute; left: 10px; top: 4px; bottom: 4px;
+  width: 2px; background: linear-gradient(to bottom, #f85149, #e3b341, #3fb950);
+}
+.timeline-item { position: relative; margin-bottom: 24px; }
+.timeline-item::before {
+  content: ''; position: absolute; left: -26px; top: 6px;
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid #58a6ff; background: #0d1117;
+}
+.timeline-item.fail::before { background: #f85149; border-color: #f85149; }
+.timeline-item.partial::before { background: #e3b341; border-color: #e3b341; }
+.timeline-item.done::before { background: #3fb950; border-color: #3fb950; }
+.tl-title { font-size: 14px; font-weight: 600; color: #f0f6fc; margin-bottom: 6px; }
+.tl-desc { font-size: 12.5px; color: #8b949e; line-height: 1.6; }
+
+/* Bar chart */
+.bar-chart { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.bar-row { display: flex; align-items: center; gap: 12px; }
+.bar-label { width: 80px; text-align: right; font-size: 12px; color: #8b949e; flex-shrink: 0; }
+.bar-track { flex: 1; height: 26px; background: #21262d; border-radius: 6px; overflow: hidden; position: relative; }
+.bar-fill { height: 100%; border-radius: 6px; display: flex; align-items: center; padding-left: 10px;
+  font-size: 11px; font-weight: 600; color: #fff; transition: width 0.8s ease; }
+.bar-val { font-size: 12px; color: #8b949e; width: 40px; flex-shrink: 0; }
+
+/* Verdict */
+.verdict {
+  background: linear-gradient(135deg, rgba(63,185,80,0.08), rgba(88,166,255,0.08));
+  border: 1px solid rgba(63,185,80,0.3); border-radius: 14px;
+  padding: 28px; margin-top: 36px;
+}
+.verdict-title { font-size: 20px; font-weight: 700; color: #3fb950; margin-bottom: 14px; }
+.verdict p { font-size: 14px; color: #c9d1d9; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>MangaGrow 核心技术穿刺报告</h1>
+<div class="subtitle">AI 漫画成长记录 — 关键技术验证与方案总结</div>
+<div class="meta">项目阶段：技术穿刺 &amp; MVP 验证 | 报告日期：2026-03-06</div>
+
+<!-- ==================== 1. 项目技术全景 ==================== -->
+<div class="section">
+  <div class="section-title"><span class="num">1</span> 项目技术全景</div>
+
+  <div class="card">
+    <div class="card-title">产品定位</div>
+    <p>帮助家长将孩子成长瞬间（文字 / 照片 / 视频）转化为风格一致的漫画绘本故事。</p>
+  </div>
+
+  <!-- 技术架构 SVG -->
+  <div class="card">
+    <div class="card-title">系统架构</div>
+    <div class="diagram-wrap">
+      <svg width="880" height="320" viewBox="0 0 880 320" xmlns="http://www.w3.org/2000/svg">
+        <!-- 前端层 -->
+        <rect x="20" y="20" width="840" height="70" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+        <text x="50" y="52" font-size="14" font-weight="700" fill="#58a6ff">Frontend</text>
+        <text x="50" y="72" font-size="11" fill="#8b949e">React + Vite + TypeScript + TailwindCSS</text>
+        <rect x="350" y="30" width="100" height="28" rx="5" fill="rgba(88,166,255,0.12)" stroke="#58a6ff" stroke-width="1"/>
+        <text x="368" y="49" font-size="11" fill="#58a6ff">InputPanel</text>
+        <rect x="470" y="30" width="110" height="28" rx="5" fill="rgba(88,166,255,0.12)" stroke="#58a6ff" stroke-width="1"/>
+        <text x="482" y="49" font-size="11" fill="#58a6ff">DisplayPanel</text>
+        <rect x="600" y="30" width="120" height="28" rx="5" fill="rgba(88,166,255,0.12)" stroke="#58a6ff" stroke-width="1"/>
+        <text x="612" y="49" font-size="11" fill="#58a6ff">CharacterLibrary</text>
+        <rect x="740" y="30" width="105" height="28" rx="5" fill="rgba(88,166,255,0.12)" stroke="#58a6ff" stroke-width="1"/>
+        <text x="755" y="49" font-size="11" fill="#58a6ff">GrowthAlbum</text>
+
+        <!-- 箭头 -->
+        <line x1="440" y1="90" x2="440" y2="120" stroke="#30363d" stroke-width="1.5" stroke-dasharray="4"/>
+        <polygon points="435,118 445,118 440,126" fill="#30363d"/>
+        <text x="450" y="112" font-size="10" fill="#6e7681">REST API</text>
+
+        <!-- 后端层 -->
+        <rect x="20" y="130" width="840" height="70" rx="10" fill="#161b22" stroke="#a371f7" stroke-width="1.5"/>
+        <text x="50" y="162" font-size="14" font-weight="700" fill="#a371f7">Backend</text>
+        <text x="50" y="182" font-size="11" fill="#8b949e">Express + TypeScript + SQLite</text>
+        <rect x="320" y="140" width="100" height="28" rx="5" fill="rgba(163,113,247,0.12)" stroke="#a371f7" stroke-width="1"/>
+        <text x="337" y="159" font-size="11" fill="#a371f7">AI Routes</text>
+        <rect x="440" y="140" width="100" height="28" rx="5" fill="rgba(163,113,247,0.12)" stroke="#a371f7" stroke-width="1"/>
+        <text x="448" y="159" font-size="11" fill="#a371f7">Story Routes</text>
+        <rect x="560" y="140" width="120" height="28" rx="5" fill="rgba(163,113,247,0.12)" stroke="#a371f7" stroke-width="1"/>
+        <text x="568" y="159" font-size="11" fill="#a371f7">Character Routes</text>
+        <rect x="700" y="140" width="120" height="28" rx="5" fill="rgba(163,113,247,0.12)" stroke="#a371f7" stroke-width="1"/>
+        <text x="716" y="159" font-size="11" fill="#a371f7">Image Storage</text>
+
+        <!-- 箭头 -->
+        <line x1="440" y1="200" x2="440" y2="230" stroke="#30363d" stroke-width="1.5" stroke-dasharray="4"/>
+        <polygon points="435,228 445,228 440,236" fill="#30363d"/>
+        <text x="450" y="220" font-size="10" fill="#6e7681">Gemini API</text>
+
+        <!-- AI 服务层 -->
+        <rect x="20" y="240" width="840" height="70" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="50" y="272" font-size="14" font-weight="700" fill="#3fb950">AI Services</text>
+        <text x="50" y="292" font-size="11" fill="#8b949e">Google Gemini API</text>
+        <rect x="280" y="250" width="130" height="28" rx="5" fill="rgba(63,185,80,0.12)" stroke="#3fb950" stroke-width="1"/>
+        <text x="290" y="269" font-size="11" fill="#3fb950">storyPipeline</text>
+        <rect x="430" y="250" width="130" height="28" rx="5" fill="rgba(63,185,80,0.12)" stroke="#3fb950" stroke-width="1"/>
+        <text x="440" y="269" font-size="11" fill="#3fb950">imageGenerator</text>
+        <rect x="580" y="250" width="140" height="28" rx="5" fill="rgba(63,185,80,0.12)" stroke="#3fb950" stroke-width="1"/>
+        <text x="590" y="269" font-size="11" fill="#3fb950">characterAnalyzer</text>
+        <rect x="740" y="250" width="110" height="28" rx="5" fill="rgba(63,185,80,0.12)" stroke="#3fb950" stroke-width="1"/>
+        <text x="750" y="269" font-size="11" fill="#3fb950">videoAnalyzer</text>
+
+        <!-- 模型标签 -->
+        <rect x="280" y="284" width="130" height="20" rx="3" fill="rgba(88,166,255,0.1)"/>
+        <text x="296" y="298" font-size="9" fill="#58a6ff">gemini-2.5-flash</text>
+        <rect x="430" y="284" width="130" height="20" rx="3" fill="rgba(163,113,247,0.1)"/>
+        <text x="436" y="298" font-size="9" fill="#a371f7">gemini-2.5-flash-image</text>
+      </svg>
+    </div>
+    <div class="diagram-caption">图 1 — MangaGrow 三层技术架构</div>
+  </div>
+
+  <!-- AI 管线流程 SVG -->
+  <div class="card">
+    <div class="card-title">AI 管线流程</div>
+    <div class="diagram-wrap">
+      <svg width="880" height="160" viewBox="0 0 880 160" xmlns="http://www.w3.org/2000/svg">
+        <!-- Step boxes -->
+        <rect x="10" y="30" width="150" height="100" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+        <text x="45" y="58" font-size="13" font-weight="700" fill="#58a6ff">输入分析</text>
+        <text x="26" y="80" font-size="11" fill="#8b949e">文字 / 照片 / 视频</text>
+        <text x="42" y="96" font-size="11" fill="#8b949e">→ 内容理解</text>
+        <text x="34" y="118" font-size="10" fill="#6e7681">inputAnalyzer.ts</text>
+
+        <polygon points="170,80 190,70 190,90" fill="#58a6ff" opacity="0.5"/>
+        <line x1="190" y1="80" x2="210" y2="80" stroke="#58a6ff" stroke-width="1.5" opacity="0.5"/>
+
+        <rect x="210" y="15" width="200" height="130" rx="10" fill="#161b22" stroke="#e3b341" stroke-width="1.5"/>
+        <text x="255" y="42" font-size="13" font-weight="700" fill="#e3b341">4步故事管线</text>
+        <text x="226" y="64" font-size="11" fill="#8b949e">Step1 大纲生成</text>
+        <text x="226" y="82" font-size="11" fill="#8b949e">Step2 大纲审核</text>
+        <text x="226" y="100" font-size="11" fill="#8b949e">Step3 分镜细化</text>
+        <text x="226" y="118" font-size="11" fill="#8b949e">Step4 一致性检查</text>
+        <text x="242" y="138" font-size="10" fill="#6e7681">storyPipeline.ts</text>
+
+        <polygon points="420,80 440,70 440,90" fill="#e3b341" opacity="0.5"/>
+        <line x1="440" y1="80" x2="460" y2="80" stroke="#e3b341" stroke-width="1.5" opacity="0.5"/>
+
+        <rect x="460" y="20" width="200" height="120" rx="10" fill="#161b22" stroke="#a371f7" stroke-width="1.5"/>
+        <text x="505" y="48" font-size="13" font-weight="700" fill="#a371f7">图片生成</text>
+        <text x="478" y="70" font-size="11" fill="#8b949e">角色头像+描述注入</text>
+        <text x="478" y="88" font-size="11" fill="#8b949e">角色快照传递</text>
+        <text x="478" y="106" font-size="11" fill="#8b949e">分镜图生成</text>
+        <text x="498" y="130" font-size="10" fill="#6e7681">imageGenerator.ts</text>
+
+        <polygon points="670,80 690,70 690,90" fill="#a371f7" opacity="0.5"/>
+        <line x1="690" y1="80" x2="710" y2="80" stroke="#a371f7" stroke-width="1.5" opacity="0.5"/>
+
+        <rect x="710" y="30" width="150" height="100" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="745" y="58" font-size="13" font-weight="700" fill="#3fb950">输出展示</text>
+        <text x="726" y="80" font-size="11" fill="#8b949e">可编辑分镜绘本</text>
+        <text x="726" y="98" font-size="11" fill="#8b949e">导出 / 保存 / 分享</text>
+        <text x="738" y="118" font-size="10" fill="#6e7681">DisplayPanel.tsx</text>
+
+        <!-- 人物库 -->
+        <rect x="460" y="0" width="200" height="18" rx="4" fill="rgba(247,120,186,0.1)" stroke="#f778ba" stroke-width="1"/>
+        <text x="498" y="13" font-size="10" fill="#f778ba">CharacterLibrary 头像注入</text>
+      </svg>
+    </div>
+    <div class="diagram-caption">图 2 — 端到端 AI 管线流程</div>
+  </div>
+</div>
+
+<!-- ==================== 2. 核心技术难点 ==================== -->
+<div class="section">
+  <div class="section-title"><span class="num">2</span> 核心技术难点</div>
+
+  <div class="card">
+    <table class="cmp-table">
+      <tr><th style="width:40px">#</th><th>技术难点</th><th style="width:60px">难度</th><th style="width:90px">状态</th></tr>
+      <tr>
+        <td style="font-weight:700;color:#f85149">H1</td>
+        <td><strong>跨分镜人物一致性</strong> — 同一角色在多个画面中保持外貌一致</td>
+        <td><span class="tag tag-problem">极高</span></td>
+        <td><span class="tag tag-solution">已验证</span></td>
+      </tr>
+      <tr>
+        <td style="font-weight:700;color:#e3b341">H2</td>
+        <td><strong>4步故事管线可靠性</strong> — AI JSON 输出解析、空响应处理、降级策略</td>
+        <td><span class="tag tag-risk">高</span></td>
+        <td><span class="tag tag-solution">已解决</span></td>
+      </tr>
+      <tr>
+        <td style="font-weight:700;color:#e3b341">H3</td>
+        <td><strong>Gemini 内容安全过滤</strong> — 儿童外貌描述触发 PROHIBITED_CONTENT</td>
+        <td><span class="tag tag-risk">高</span></td>
+        <td><span class="tag tag-solution">已解决</span></td>
+      </tr>
+      <tr>
+        <td style="font-weight:700;color:#a371f7">H4</td>
+        <td><strong>图片生成模型选型</strong> — 需支持多图参考输入 + 图片输出</td>
+        <td><span class="tag tag-risk">中</span></td>
+        <td><span class="tag tag-solution">已验证</span></td>
+      </tr>
+      <tr>
+        <td style="font-weight:700;color:#58a6ff">H5</td>
+        <td><strong>视频输入支持</strong> — 视频分析 + 关键帧提取 + 绘本转化</td>
+        <td><span class="tag tag-risk">中</span></td>
+        <td><span class="tag tag-solution">已实现</span></td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== 3. H1 深度报告 ==================== -->
+<div class="section">
+  <div class="section-title"><span class="num">3</span> H1 深度报告：跨分镜人物一致性</div>
+
+  <div class="card">
+    <div class="card-title" style="color:#f85149">问题本质</div>
+    <p>AI 图片生成模型每次调用都是独立的，没有"记忆"。即使是同一个角色，不同分镜生成的外貌（发型、发色、服装、体型）几乎必然不同。这是 AI 绘本产品的<strong style="color:#f0f6fc">最核心技术挑战</strong>。</p>
+  </div>
+
+  <!-- 迭代时间线 -->
+  <div class="card">
+    <div class="card-title" style="color:#58a6ff">迭代验证过程</div>
+    <div class="timeline">
+      <div class="timeline-item fail">
+        <div class="tl-title">v1.0 — 纯文字描述</div>
+        <div class="tl-desc">仅靠 prompt 中的文字描述（如"黑色短发的小女孩"）来约束角色外貌。<br>
+        <span class="tag tag-problem">失败</span> 每张图的角色外貌几乎完全不同，文字约束力极弱。</div>
+      </div>
+      <div class="timeline-item partial">
+        <div class="tl-title">v1.5 — 人物库 + Q版头像参考图</div>
+        <div class="tl-desc">建立人物库系统，为每个角色生成 Q版头像。分镜生成时将头像作为参考图传入。<br>
+        <span class="tag tag-risk">部分有效</span> 有改善但不稳定。头像图片和文字描述分离，模型经常忽略头像。</div>
+      </div>
+      <div class="timeline-item partial">
+        <div class="tl-title">v1.9 — 角色快照 + 链式生成</div>
+        <div class="tl-desc">累积已生成分镜中角色的最佳画面作为后续参考。链式生成策略（前一分镜→下一分镜）。<br>
+        <span class="tag tag-risk">改善</span> 连续性提升，但首张到末张的漂移仍然明显。</div>
+      </div>
+      <div class="timeline-item done">
+        <div class="tl-title">v2.1 — 全链路五层修复 + 模型升级</div>
+        <div class="tl-desc">系统性修复 5 个断裂点，从故事生成到图片生成端到端对齐。切换到 <code>gemini-2.5-flash-image</code>。<br>
+        <span class="tag tag-solution">方案验证通过</span> 一致性显著提升。详见下方。</div>
+      </div>
+    </div>
+
+    <!-- 一致性评分柱状图 -->
+    <div style="margin-top:20px;padding:16px;background:#0d1117;border:1px solid #21262d;border-radius:8px">
+      <div style="font-size:13px;font-weight:700;color:#f0f6fc;margin-bottom:4px">各版本人物一致性评估（估计值）</div>
+      <div style="font-size:11px;color:#6e7681;margin-bottom:12px">基于多次测试的主观评估，5分制</div>
+      <div class="bar-chart">
+        <div class="bar-row">
+          <div class="bar-label">v1.0</div>
+          <div class="bar-track"><div class="bar-fill" style="width:16%;background:linear-gradient(90deg,#f85149,#da3633)">0.8</div></div>
+          <div class="bar-val" style="color:#f85149">0.8</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">v1.5</div>
+          <div class="bar-track"><div class="bar-fill" style="width:40%;background:linear-gradient(90deg,#e3b341,#d29922)">2.0</div></div>
+          <div class="bar-val" style="color:#e3b341">2.0</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">v1.9</div>
+          <div class="bar-track"><div class="bar-fill" style="width:56%;background:linear-gradient(90deg,#e3b341,#3fb950)">2.8</div></div>
+          <div class="bar-val" style="color:#e3b341">2.8</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label" style="color:#f0f6fc;font-weight:700">v2.1</div>
+          <div class="bar-track"><div class="bar-fill" style="width:76%;background:linear-gradient(90deg,#3fb950,#2ea043)">3.8</div></div>
+          <div class="bar-val" style="color:#3fb950;font-weight:700">3.8</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 断裂点可视化 -->
+  <div class="card">
+    <div class="card-title" style="color:#f85149">发现的 5 个断裂点</div>
+    <div class="diagram-wrap" style="background:#0d1117">
+      <svg width="860" height="380" viewBox="0 0 860 380" xmlns="http://www.w3.org/2000/svg">
+        <!-- 管线主轴 -->
+        <line x1="80" y1="40" x2="780" y2="40" stroke="#30363d" stroke-width="3"/>
+        <text x="80" y="25" font-size="12" fill="#8b949e">故事管线</text>
+        <text x="400" y="25" font-size="12" fill="#8b949e">角色匹配</text>
+        <text x="620" y="25" font-size="12" fill="#8b949e">图片生成</text>
+
+        <!-- 正常流程节点 -->
+        <circle cx="150" cy="40" r="8" fill="#21262d" stroke="#58a6ff" stroke-width="2"/>
+        <text x="130" y="65" font-size="10" fill="#58a6ff">Step3</text>
+        <text x="120" y="78" font-size="9" fill="#6e7681">分镜细化</text>
+
+        <circle cx="350" cy="40" r="8" fill="#21262d" stroke="#58a6ff" stroke-width="2"/>
+        <text x="316" y="65" font-size="10" fill="#58a6ff">characterContext</text>
+        <text x="318" y="78" font-size="9" fill="#6e7681">角色描述组装</text>
+
+        <circle cx="500" cy="40" r="8" fill="#21262d" stroke="#58a6ff" stroke-width="2"/>
+        <text x="468" y="65" font-size="10" fill="#58a6ff">getCharRefs</text>
+        <text x="474" y="78" font-size="9" fill="#6e7681">名字匹配</text>
+
+        <circle cx="650" cy="40" r="8" fill="#21262d" stroke="#58a6ff" stroke-width="2"/>
+        <text x="624" y="65" font-size="10" fill="#58a6ff">Parts 组装</text>
+        <text x="618" y="78" font-size="9" fill="#6e7681">参考图注入</text>
+
+        <circle cx="780" cy="40" r="8" fill="#21262d" stroke="#58a6ff" stroke-width="2"/>
+        <text x="762" y="65" font-size="10" fill="#58a6ff">模型</text>
+        <text x="752" y="78" font-size="9" fill="#6e7681">图片生成</text>
+
+        <!-- B1 断裂点 -->
+        <line x1="150" y1="50" x2="150" y2="110" stroke="#f85149" stroke-width="1.5" stroke-dasharray="4"/>
+        <rect x="30" y="110" width="240" height="56" rx="6" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1"/>
+        <text x="46" y="128" font-size="11" font-weight="700" fill="#f85149">B1 故事管线忽视人物库外貌</text>
+        <text x="46" y="146" font-size="10" fill="#8b949e">只传 name+gender+age，AI 自行想象外貌</text>
+        <text x="46" y="160" font-size="10" fill="#8b949e">分镜描述中嵌入错误的外貌信息</text>
+
+        <!-- B2 断裂点 -->
+        <line x1="350" y1="50" x2="350" y2="180" stroke="#f85149" stroke-width="1.5" stroke-dasharray="4"/>
+        <rect x="240" y="180" width="240" height="56" rx="6" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1"/>
+        <text x="256" y="198" font-size="11" font-weight="700" fill="#f85149">B2 characterContext 丢弃文字描述</text>
+        <text x="256" y="216" font-size="10" fill="#8b949e">库角色只传"以头像为准"</text>
+        <text x="256" y="230" font-size="10" fill="#8b949e">图片模型无文字锚点</text>
+
+        <!-- B5 断裂点 -->
+        <line x1="500" y1="50" x2="500" y2="250" stroke="#f85149" stroke-width="1.5" stroke-dasharray="4"/>
+        <rect x="400" y="250" width="220" height="56" rx="6" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1"/>
+        <text x="416" y="268" font-size="11" font-weight="700" fill="#f85149">B5 角色名匹配太严格</text>
+        <text x="416" y="286" font-size="10" fill="#8b949e">精确匹配 includes(name)</text>
+        <text x="416" y="300" font-size="10" fill="#8b949e">AI 用代词时头像不传</text>
+
+        <!-- B3+B4 断裂点 -->
+        <line x1="650" y1="50" x2="650" y2="320" stroke="#f85149" stroke-width="1.5" stroke-dasharray="4"/>
+        <rect x="540" y="320" width="280" height="56" rx="6" fill="rgba(248,81,73,0.08)" stroke="#f85149" stroke-width="1"/>
+        <text x="556" y="338" font-size="11" font-weight="700" fill="#f85149">B3+B4 头像与描述分离 + 优先级错误</text>
+        <text x="556" y="356" font-size="10" fill="#8b949e">头像在 parts[1]，描述在 parts[末尾]</text>
+        <text x="556" y="370" font-size="10" fill="#8b949e">场景参考图优先级反而高于角色头像</text>
+      </svg>
+    </div>
+    <div class="diagram-caption">图 3 — 人物一致性链路中发现的 5 个断裂点</div>
+  </div>
+
+  <!-- 解决方案 -->
+  <div class="card">
+    <div class="card-title" style="color:#3fb950">v2.1 五层修复方案</div>
+    <table class="cmp-table">
+      <tr><th style="width:35px">Fix</th><th>具体措施</th><th style="width:50px">解决</th></tr>
+      <tr>
+        <td style="color:#3fb950;font-weight:700">F1</td>
+        <td><strong>故事管线传入人物库视觉特征</strong> — Step 3 prompt 包含人物库 description，AI 分镜描述与人物库对齐</td>
+        <td>B1</td>
+      </tr>
+      <tr>
+        <td style="color:#3fb950;font-weight:700">F2</td>
+        <td><strong>characterContext 双重锚定</strong> — 人物库角色同时传入完整文字描述 + 头像引用指令</td>
+        <td>B2</td>
+      </tr>
+      <tr>
+        <td style="color:#3fb950;font-weight:700">F3</td>
+        <td><strong>Parts 结构重构：角色身份优先</strong> — 头像紧贴描述文字（image+text 配对），排在最前</td>
+        <td>B3+B4</td>
+      </tr>
+      <tr>
+        <td style="color:#3fb950;font-weight:700">F4</td>
+        <td><strong>角色名模糊匹配</strong> — 支持去姓匹配和去前缀匹配，提高头像命中率</td>
+        <td>B5</td>
+      </tr>
+      <tr>
+        <td style="color:#3fb950;font-weight:700">F5</td>
+        <td><strong>重新生成传入角色快照</strong> — 自动将相邻已生成分镜作为 characterSnapshot 传入</td>
+        <td>补充</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- Parts 结构对比 SVG -->
+  <div class="card">
+    <div class="card-title" style="color:#a371f7">Parts 结构对比：Before vs After</div>
+    <div class="diagram-wrap">
+      <svg width="860" height="340" viewBox="0 0 860 340" xmlns="http://www.w3.org/2000/svg">
+        <!-- Before -->
+        <text x="120" y="20" font-size="15" font-weight="700" fill="#f85149" text-anchor="middle">Before (v1.9)</text>
+        <rect x="20" y="35" width="200" height="36" rx="6" fill="rgba(227,179,65,0.1)" stroke="#e3b341" stroke-width="1"/>
+        <text x="120" y="57" font-size="11" fill="#e3b341" text-anchor="middle">parts[0] 场景参考图 + 标签</text>
+
+        <rect x="20" y="80" width="200" height="36" rx="6" fill="rgba(163,113,247,0.1)" stroke="#a371f7" stroke-width="1"/>
+        <text x="120" y="102" font-size="11" fill="#a371f7" text-anchor="middle">parts[1] Q版头像 + 简短标签</text>
+
+        <rect x="20" y="125" width="200" height="36" rx="6" fill="rgba(63,185,80,0.1)" stroke="#3fb950" stroke-width="1"/>
+        <text x="120" y="147" font-size="11" fill="#3fb950" text-anchor="middle">parts[2] 角色快照</text>
+
+        <rect x="20" y="170" width="200" height="80" rx="6" fill="rgba(139,148,158,0.08)" stroke="#6e7681" stroke-width="1"/>
+        <text x="120" y="195" font-size="11" fill="#8b949e" text-anchor="middle">parts[3] 大段文字 Prompt</text>
+        <text x="120" y="212" font-size="10" fill="#6e7681" text-anchor="middle">[ROLE] [CHARS] [SCENE]</text>
+        <text x="120" y="228" font-size="10" fill="#6e7681" text-anchor="middle">[OBJECTS] [STYLE] [QUALITY]</text>
+        <text x="120" y="244" font-size="9" fill="#f85149" text-anchor="middle">角色描述埋在此处，与头像相距甚远</text>
+
+        <!-- 问题标注 -->
+        <line x1="222" y1="98" x2="260" y2="98" stroke="#f85149" stroke-width="1"/>
+        <line x1="222" y1="210" x2="260" y2="210" stroke="#f85149" stroke-width="1"/>
+        <line x1="260" y1="98" x2="260" y2="210" stroke="#f85149" stroke-width="1.5"/>
+        <text x="268" y="158" font-size="11" fill="#f85149" font-weight="700">分离!</text>
+        <text x="268" y="174" font-size="10" fill="#f85149">模型无法</text>
+        <text x="268" y="188" font-size="10" fill="#f85149">关联</text>
+
+        <!-- Arrow -->
+        <polygon points="390,155 420,140 420,170" fill="#58a6ff" opacity="0.6"/>
+        <text x="435" y="160" font-size="20" fill="#58a6ff">→</text>
+
+        <!-- After -->
+        <text x="640" y="20" font-size="15" font-weight="700" fill="#3fb950" text-anchor="middle">After (v2.1)</text>
+
+        <rect x="480" y="35" width="320" height="80" rx="8" fill="rgba(247,120,186,0.08)" stroke="#f778ba" stroke-width="1.5"/>
+        <text x="640" y="55" font-size="12" font-weight="700" fill="#f778ba" text-anchor="middle">parts[0-1] 角色头像 + 完整视觉描述</text>
+        <text x="640" y="72" font-size="10" fill="#c9d1d9" text-anchor="middle">[Q版头像 inlineData]</text>
+        <text x="640" y="88" font-size="10" fill="#c9d1d9" text-anchor="middle">「XX」发型发色面部描述 + "严格还原此图"</text>
+        <text x="640" y="104" font-size="9" fill="#3fb950" text-anchor="middle">图片+文字紧密配对，模型强关联</text>
+
+        <rect x="480" y="125" width="320" height="36" rx="6" fill="rgba(63,185,80,0.1)" stroke="#3fb950" stroke-width="1"/>
+        <text x="640" y="147" font-size="11" fill="#3fb950" text-anchor="middle">parts[2] 角色快照 + "保持外观一致"</text>
+
+        <rect x="480" y="170" width="320" height="36" rx="6" fill="rgba(227,179,65,0.1)" stroke="#e3b341" stroke-width="1"/>
+        <text x="640" y="186" font-size="11" fill="#e3b341" text-anchor="middle">parts[3] 场景参考图</text>
+        <text x="640" y="200" font-size="9" fill="#6e7681" text-anchor="middle">"角色外观以头像为准，不要参考此画面角色"</text>
+
+        <rect x="480" y="215" width="320" height="50" rx="6" fill="rgba(139,148,158,0.08)" stroke="#6e7681" stroke-width="1"/>
+        <text x="640" y="237" font-size="11" fill="#8b949e" text-anchor="middle">parts[4] 场景指令</text>
+        <text x="640" y="254" font-size="10" fill="#6e7681" text-anchor="middle">[RULE] [OTHER_CHARS] [SCENE] [STYLE] [OUTPUT]</text>
+
+        <!-- 关键改进标注 -->
+        <rect x="480" y="280" width="320" height="50" rx="8" fill="rgba(63,185,80,0.06)" stroke="#3fb950" stroke-width="1" stroke-dasharray="4"/>
+        <text x="640" y="300" font-size="11" font-weight="700" fill="#3fb950" text-anchor="middle">核心改进</text>
+        <text x="640" y="318" font-size="10" fill="#8b949e" text-anchor="middle">角色身份优先 | 图文紧密配对 | 场景参考降级</text>
+      </svg>
+    </div>
+    <div class="diagram-caption">图 4 — imageGenerator Parts 结构重构对比</div>
+  </div>
+</div>
+
+<!-- ==================== 4. H4 模型选型 ==================== -->
+<div class="section">
+  <div class="section-title"><span class="num">4</span> H4 验证：图片生成模型选型</div>
+
+  <div class="card">
+    <div class="card-title" style="color:#a371f7">模型对比与选型结论</div>
+    <table class="cmp-table">
+      <tr><th>模型</th><th>多图参考</th><th>图片输出</th><th>一致性</th><th>结论</th></tr>
+      <tr>
+        <td><code>nano-banana-pro-preview</code></td>
+        <td style="color:#f85149">不确定</td>
+        <td style="color:#3fb950">支持</td>
+        <td style="color:#f85149">差</td>
+        <td><span class="tag tag-problem">弃用</span></td>
+      </tr>
+      <tr>
+        <td><code>gemini-2.0-flash-exp-image-gen</code></td>
+        <td style="color:#3fb950">支持</td>
+        <td style="color:#3fb950">支持</td>
+        <td style="color:#e3b341">中</td>
+        <td><span class="tag tag-risk">备选</span></td>
+      </tr>
+      <tr style="background:rgba(63,185,80,0.04)">
+        <td><strong><code>gemini-2.5-flash-image</code></strong></td>
+        <td style="color:#3fb950">支持</td>
+        <td style="color:#3fb950">支持</td>
+        <td style="color:#3fb950">较好</td>
+        <td><span class="tag tag-solution">当前选用</span></td>
+      </tr>
+      <tr>
+        <td><code>gemini-3-pro-image-preview</code></td>
+        <td style="color:#3fb950">支持</td>
+        <td style="color:#3fb950">支持</td>
+        <td style="color:#3fb950">最佳（预期）</td>
+        <td><span class="tag tag-model">待测试</span></td>
+      </tr>
+      <tr>
+        <td><code>imagen-4.0-*</code></td>
+        <td style="color:#f85149">不支持</td>
+        <td style="color:#3fb950">支持</td>
+        <td>N/A</td>
+        <td><span class="tag tag-problem">不适用</span></td>
+      </tr>
+    </table>
+    <div style="margin-top:14px;padding:12px;background:#21262d;border-radius:6px;font-size:12px;color:#e3b341">
+      <strong>关键发现：</strong>模型是否真正"理解"参考图片是人物一致性的根本前提。如果模型不支持多图参考输入，所有 prompt 工程优化都无法生效。<strong>选对模型是第一步。</strong>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 5. H2 & H3 ==================== -->
+<div class="section">
+  <div class="section-title"><span class="num">5</span> H2 & H3：管线可靠性 & 内容安全</div>
+
+  <div class="card">
+    <div class="card-title" style="color:#58a6ff">H2 — 4步故事管线可靠性</div>
+    <div class="diagram-wrap" style="padding:16px">
+      <svg width="820" height="120" viewBox="0 0 820 120" xmlns="http://www.w3.org/2000/svg">
+        <rect x="10" y="20" width="180" height="80" rx="8" fill="#161b22" stroke="#58a6ff" stroke-width="1"/>
+        <text x="100" y="48" font-size="11" font-weight="700" fill="#58a6ff" text-anchor="middle">JSON 解析失败</text>
+        <text x="100" y="68" font-size="10" fill="#8b949e" text-anchor="middle">callAiWithJsonRetry</text>
+        <text x="100" y="84" font-size="10" fill="#3fb950" text-anchor="middle">5次重试 + 指数退避</text>
+
+        <polygon points="200,60 218,52 218,68" fill="#30363d"/>
+
+        <rect x="220" y="20" width="180" height="80" rx="8" fill="#161b22" stroke="#e3b341" stroke-width="1"/>
+        <text x="310" y="48" font-size="11" font-weight="700" fill="#e3b341" text-anchor="middle">网络调用失败</text>
+        <text x="310" y="68" font-size="10" fill="#8b949e" text-anchor="middle">withRetry</text>
+        <text x="310" y="84" font-size="10" fill="#3fb950" text-anchor="middle">3次重试 + 抖动</text>
+
+        <polygon points="410,60 428,52 428,68" fill="#30363d"/>
+
+        <rect x="430" y="20" width="180" height="80" rx="8" fill="#161b22" stroke="#a371f7" stroke-width="1"/>
+        <text x="520" y="48" font-size="11" font-weight="700" fill="#a371f7" text-anchor="middle">大纲审核失败</text>
+        <text x="520" y="68" font-size="10" fill="#8b949e" text-anchor="middle">Step 2 → Step 3</text>
+        <text x="520" y="84" font-size="10" fill="#3fb950" text-anchor="middle">降级不中断</text>
+
+        <polygon points="620,60 638,52 638,68" fill="#30363d"/>
+
+        <rect x="640" y="20" width="180" height="80" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1"/>
+        <text x="730" y="48" font-size="11" font-weight="700" fill="#3fb950" text-anchor="middle">标题生成失败</text>
+        <text x="730" y="68" font-size="10" fill="#8b949e" text-anchor="middle">与 Step4 并行</text>
+        <text x="730" y="84" font-size="10" fill="#3fb950" text-anchor="middle">fallback 输入前10字</text>
+      </svg>
+    </div>
+    <div class="diagram-caption">图 5 — 故事管线容错机制</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" style="color:#e3b341">H3 — Gemini PROHIBITED_CONTENT 规避策略</div>
+    <p><strong>现象：</strong>prompt 中包含儿童外貌详细描述时，Gemini 文本模型触发内容安全过滤，返回空响应。</p>
+    <div class="diagram-wrap" style="padding:16px;margin-top:12px">
+      <svg width="820" height="100" viewBox="0 0 820 100" xmlns="http://www.w3.org/2000/svg">
+        <rect x="10" y="10" width="250" height="80" rx="8" fill="#161b22" stroke="#e3b341" stroke-width="1"/>
+        <text x="135" y="34" font-size="12" font-weight="700" fill="#e3b341" text-anchor="middle">文本模型（高风险）</text>
+        <text x="135" y="54" font-size="10" fill="#8b949e" text-anchor="middle">Step1: 仅传 name+gender+age</text>
+        <text x="135" y="70" font-size="10" fill="#8b949e" text-anchor="middle">Step3: 传安全措辞的视觉特征</text>
+        <text x="135" y="84" font-size="9" fill="#3fb950" text-anchor="middle">规避详细儿童外貌描述</text>
+
+        <polygon points="270,50 290,42 290,58" fill="#30363d"/>
+
+        <rect x="300" y="10" width="250" height="80" rx="8" fill="#161b22" stroke="#a371f7" stroke-width="1"/>
+        <text x="425" y="34" font-size="12" font-weight="700" fill="#a371f7" text-anchor="middle">图片模型（安全）</text>
+        <text x="425" y="54" font-size="10" fill="#8b949e" text-anchor="middle">传入 Q版头像（卡通化，安全）</text>
+        <text x="425" y="70" font-size="10" fill="#8b949e" text-anchor="middle">+ AI 分析生成的文字描述</text>
+        <text x="425" y="84" font-size="9" fill="#3fb950" text-anchor="middle">卡通化后不触发过滤</text>
+
+        <polygon points="560,50 580,42 580,58" fill="#30363d"/>
+
+        <rect x="590" y="10" width="220" height="80" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="700" y="38" font-size="12" font-weight="700" fill="#3fb950" text-anchor="middle">策略核心</text>
+        <text x="700" y="58" font-size="10" fill="#c9d1d9" text-anchor="middle">文本侧: 精简信息规避</text>
+        <text x="700" y="74" font-size="10" fill="#c9d1d9" text-anchor="middle">图片侧: 卡通化传递特征</text>
+      </svg>
+    </div>
+    <div class="diagram-caption">图 6 — PROHIBITED_CONTENT 分层规避策略</div>
+  </div>
+</div>
+
+<!-- ==================== 6. 架构经验 ==================== -->
+<div class="section">
+  <div class="section-title"><span class="num">6</span> 关键架构经验</div>
+
+  <div class="card">
+    <div class="card-title">端到端一致性需要全链路思维</div>
+    <p>人物一致性不是"图片生成 prompt 写好就行"的问题。需要从故事文本生成到图片输出全链路打通：</p>
+    <div class="diagram-wrap" style="padding:16px;margin-top:12px">
+      <svg width="820" height="130" viewBox="0 0 820 130" xmlns="http://www.w3.org/2000/svg">
+        <rect x="10" y="20" width="180" height="90" rx="10" fill="#161b22" stroke="#f85149" stroke-width="1.5"/>
+        <text x="100" y="48" font-size="12" font-weight="700" fill="#f85149" text-anchor="middle">故事管线</text>
+        <text x="100" y="68" font-size="10" fill="#c9d1d9" text-anchor="middle">分镜描述必须</text>
+        <text x="100" y="84" font-size="10" fill="#c9d1d9" text-anchor="middle">对齐人物库外貌</text>
+        <text x="100" y="100" font-size="9" fill="#3fb950" text-anchor="middle">F1: 传入视觉特征</text>
+
+        <polygon points="200,65 218,57 218,73" fill="#58a6ff" opacity="0.5"/>
+
+        <rect x="220" y="20" width="180" height="90" rx="10" fill="#161b22" stroke="#e3b341" stroke-width="1.5"/>
+        <text x="310" y="48" font-size="12" font-weight="700" fill="#e3b341" text-anchor="middle">角色匹配</text>
+        <text x="310" y="68" font-size="10" fill="#c9d1d9" text-anchor="middle">模糊匹配确保</text>
+        <text x="310" y="84" font-size="10" fill="#c9d1d9" text-anchor="middle">头像不遗漏</text>
+        <text x="310" y="100" font-size="9" fill="#3fb950" text-anchor="middle">F4: 模糊名匹配</text>
+
+        <polygon points="410,65 428,57 428,73" fill="#58a6ff" opacity="0.5"/>
+
+        <rect x="430" y="20" width="180" height="90" rx="10" fill="#161b22" stroke="#a371f7" stroke-width="1.5"/>
+        <text x="520" y="48" font-size="12" font-weight="700" fill="#a371f7" text-anchor="middle">参考注入</text>
+        <text x="520" y="68" font-size="10" fill="#c9d1d9" text-anchor="middle">图片+文字紧密</text>
+        <text x="520" y="84" font-size="10" fill="#c9d1d9" text-anchor="middle">配对，角色优先</text>
+        <text x="520" y="100" font-size="9" fill="#3fb950" text-anchor="middle">F2+F3: 双重锚定</text>
+
+        <polygon points="620,65 638,57 638,73" fill="#58a6ff" opacity="0.5"/>
+
+        <rect x="640" y="20" width="180" height="90" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+        <text x="730" y="48" font-size="12" font-weight="700" fill="#3fb950" text-anchor="middle">模型能力</text>
+        <text x="730" y="68" font-size="10" fill="#c9d1d9" text-anchor="middle">必须支持多图</text>
+        <text x="730" y="84" font-size="10" fill="#c9d1d9" text-anchor="middle">参考输入</text>
+        <text x="730" y="100" font-size="9" fill="#3fb950" text-anchor="middle">gemini-2.5-flash-image</text>
+
+        <!-- 底部标注 -->
+        <text x="410" y="128" font-size="11" fill="#f85149" text-anchor="middle" font-weight="600">任何一个环节断裂，最终效果都会大打折扣</text>
+      </svg>
+    </div>
+    <div class="diagram-caption">图 7 — 人物一致性全链路依赖关系</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Multimodal Prompt 工程要点</div>
+    <ul>
+      <li><strong style="color:#f0f6fc">图文配对原则</strong> — 参考图片必须紧贴其描述文字，不能分离放置</li>
+      <li><strong style="color:#f0f6fc">优先级即排序</strong> — Parts 数组中越靠前的内容对模型影响越大</li>
+      <li><strong style="color:#f0f6fc">双重锚定</strong> — 同时用图片（视觉）和文字（语义）约束同一对象，效果远优于单一通道</li>
+      <li><strong style="color:#f0f6fc">负面标注</strong> — 场景参考图需明确标注"不要参考此画面中的角色外貌"</li>
+      <li><strong style="color:#f0f6fc">模型是前提</strong> — 如果模型不支持 image-to-image 参考，所有 prompt 优化都是徒劳</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <div class="card-title">临时角色一致性的已知局限</div>
+    <p>非人物库角色（AI 创造的临时角色）没有预设头像，只能靠文字描述 + 链式生成 + 角色快照。</p>
+    <p style="margin-top:8px;color:#e3b341">更彻底的方案：在第一张分镜生成后，自动从画面中裁剪角色区域作为后续参考（待实现）。</p>
+  </div>
+</div>
+
+<!-- ==================== 7. 结论 ==================== -->
+<div class="verdict">
+  <div class="verdict-title">穿刺结论</div>
+  <p><strong>人物一致性方案已验证可行。</strong>通过全链路修复（故事管线对齐 + 双重锚定 + Parts 结构重构 + 模型升级），人物库角色的跨分镜一致性达到可用水平。</p>
+  <p><strong>核心方法论：</strong>多模态 AI 的一致性问题不是单点 prompt 优化能解决的，需要<strong style="color:#f0f6fc">"信息全链路无损传递"</strong>——从结构化数据、到文本描述、到图片参考，每个环节都不能有信息丢失。</p>
+  <p style="margin-top:14px"><strong>后续优化方向：</strong></p>
+  <ul style="font-size:14px;color:#c9d1d9;padding-left:20px;margin-top:6px">
+    <li>测试 <code>gemini-3-pro-image-preview</code> 是否有更好的参考图遵循能力</li>
+    <li>自动角色裁剪 — 从首张分镜中提取角色区域作为临时角色的视觉锚点</li>
+    <li>多角度参考表（Reference Sheet）效果验证</li>
+    <li>LoRA / IP-Adapter 等微调方案的可行性评估（长期）</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>
